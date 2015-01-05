@@ -56,6 +56,10 @@ class Library(object):
 
 			self._db.commit()
 
+	def get_next(self):
+		result = self._db.execute('SELECT * FROM files ORDER BY RANDOM() LIMIT 1;').fetchone()
+		return result['path'] if result else None
+
 	def remove_directory(self, path):
 		path = os.path.abspath(path)
 
