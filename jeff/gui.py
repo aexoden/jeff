@@ -24,6 +24,8 @@
 import os
 import xdg.BaseDirectory
 
+from collections import deque
+
 from gi.repository import Gio
 from gi.repository import GLib
 from gi.repository import GObject
@@ -107,9 +109,10 @@ class MainWindow(Gtk.ApplicationWindow):
 		self._library = library.Library(os.path.join(xdg.BaseDirectory.save_config_path('jeff'), 'library.sqlite'))
 		self._library.scan_directories()
 
-		if self.skip_forward():
-			self._widget_button_playpause.set_sensitive(True)
-			self._widget_button_skip_forward.set_sensitive(True)
+		self._queue = deque()
+		self.skip_forward()
+
+		self._update_choices()
 
 		GObject.timeout_add(500, self.on_timeout_update)
 
@@ -134,18 +137,25 @@ class MainWindow(Gtk.ApplicationWindow):
 
 		dialog.destroy()
 
-	def skip_forward(self):
-		track = self._select_next_track()
+	def skip_forward(self, preview=False):
+		self._update_queue()
 
-		if track:
-			state = self._player.get_state(Gst.CLOCK_TIME_NONE)[1]
-			self._player.set_state(Gst.State.NULL)
-			self._player.set_property('uri', GLib.filename_to_uri(track, None))
-			self._player.set_state(state)
-			self._update_seek_bar()
-			return True
-		else:
+		if len(self._queue) == 0:
 			return False
+
+		track = self._queue.popleft()[0]['path']
+
+		state = self._player.get_state(Gst.CLOCK_TIME_NONE)[1]
+		self._player.set_state(Gst.State.NULL)
+		self._player.set_property('uri', GLib.filename_to_uri(track, None))
+		self._player.set_state(state)
+
+		self._widget_button_playpause.set_sensitive(True)
+		self._widget_button_skip_forward.set_sensitive(True)
+
+		self._update_seek_bar()
+
+		return True
 
 	def playpause(self):
 		if self._player.get_state(Gst.CLOCK_TIME_NONE)[1] == Gst.State.PLAYING:
@@ -159,6 +169,14 @@ class MainWindow(Gtk.ApplicationWindow):
 	#---------------------------------------------------------------------------
 	# Signal Handlers
 	#---------------------------------------------------------------------------
+
+	def on_button_choices_preview_clicked(self, widget, index):
+		self._next_track = self._choices[index]['path']
+		self.skip_forward(preview=True)
+
+	def on_button_choices_enqueue_clicked(self, widget, index):
+		self._queue.append((self._choices[index], None))
+		self._update_choices()
 
 	def on_button_playpause_clicked(self, widget):
 		self.playpause()
@@ -213,8 +231,11 @@ class MainWindow(Gtk.ApplicationWindow):
 		main_box = Gtk.VBox()
 		self.add(main_box)
 
-		box = Gtk.HBox(spacing=3)
-		main_box.pack_start(box, True, True, 0)
+		frame = Gtk.Frame(label='Player')
+		main_box.pack_start(frame, True, True, 0)
+
+		box = Gtk.HBox(spacing=3, border_width=3)
+		frame.add(box)
 
 		self._widget_button_playpause = self._create_button(self._image_play, self.on_button_playpause_clicked)
 		self._widget_button_stop = self._create_button(self._image_stop, self.on_button_stop_clicked)
@@ -234,9 +255,41 @@ class MainWindow(Gtk.ApplicationWindow):
 		box.pack_start(self._widget_button_skip_backward, True, True, 0)
 		box.pack_start(self._widget_button_skip_forward, True, True, 0)
 		box.pack_start(self._widget_seek_bar, True, True, 0)
-		box.pack_start(self._widget_label_time_current, True, True, 0)
-		box.pack_start(Gtk.Label(' / '), True, True, 0)
-		box.pack_start(self._widget_label_time_maximum, True, True, 0)
+		box.pack_start(self._widget_label_time_current, False, False, 0)
+		box.pack_start(Gtk.Label(' / '), False, False, 0)
+		box.pack_start(self._widget_label_time_maximum, False, False, 0)
+
+		frame = Gtk.Frame(label='Choices')
+		main_box.pack_start(frame, True, True, 0)
+
+		box = Gtk.VBox(spacing=3, border_width=5)
+		frame.add(box)
+
+		self._widget_choices = []
+
+		for i in range(4):
+			widgets = {}
+
+			inner_box = Gtk.HBox(spacing=3)
+			box.pack_start(inner_box, True, True, 0)
+
+			widgets['preview'] = Gtk.Button()
+			widgets['preview'].set_sensitive(False)
+			widgets['preview'].set_label('Preview')
+			widgets['preview'].connect('clicked', self.on_button_choices_preview_clicked, i)
+
+			widgets['enqueue'] = Gtk.Button()
+			widgets['enqueue'].set_sensitive(False)
+			widgets['enqueue'].set_label('Enqueue')
+			widgets['enqueue'].connect('clicked', self.on_button_choices_enqueue_clicked, i)
+
+			widgets['label'] = Gtk.Label()
+
+			inner_box.pack_start(widgets['preview'], False, False, 0)
+			inner_box.pack_start(widgets['enqueue'], False, False, 0)
+			inner_box.pack_start(widgets['label'], False, False, 0)
+
+			self._widget_choices.append(widgets)
 
 	def _format_time(self, nanoseconds):
 		seconds = int(nanoseconds / 1000000000 + 0.5)
@@ -255,8 +308,20 @@ class MainWindow(Gtk.ApplicationWindow):
 		bus.connect('message::eos', self.on_player_eos)
 		bus.connect('message::state-changed', self.on_player_state_changed)
 
-	def _select_next_track(self):
-		return self._library.get_next()
+	def _update_choices(self):
+		self._choices = self._library.get_next_tracks(4)
+
+		for index, choice in enumerate(self._choices):
+			self._widget_choices[index]['label'].set_label(choice['path'])
+			self._widget_choices[index]['preview'].set_sensitive(True)
+			self._widget_choices[index]['enqueue'].set_sensitive(True)
+
+	def _update_queue(self):
+		if len(self._queue) == 0:
+			tracks = self._library.get_next_tracks(1)
+
+			if len(tracks) > 0:
+				self._queue.append((tracks[0], None))
 
 	def _update_seek_bar(self):
 		position = self._player.query_position(Gst.Format.TIME)
