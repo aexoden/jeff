@@ -196,13 +196,21 @@ class MainWindow(Gtk.ApplicationWindow):
 	def on_player_state_changed(self, bus, message):
 		_, state, _ = message.parse_state_changed()
 
-		if state == Gst.State.READY:
+		if state == Gst.State.NULL:
+			self._widget_seek_bar.set_sensitive(False)
+		elif state == Gst.State.READY:
 			self._widget_button_stop.set_sensitive(False)
+			self._widget_seek_bar.set_sensitive(True)
 		elif state == Gst.State.PAUSED:
 			self._widget_button_playpause.set_image(self._image_play)
 			self._widget_button_stop.set_sensitive(True)
 		elif state == Gst.State.PLAYING:
 			self._widget_button_playpause.set_image(self._image_pause)
+
+	def on_seek_bar_value_changed(self, scale):
+		value = scale.get_value()
+		duration = self._player.query_duration(Gst.Format.TIME)[1]
+		self._player.seek_simple(Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT, duration * value)
 
 	def on_timeout_update(self):
 		self._update_seek_bar()
@@ -246,6 +254,7 @@ class MainWindow(Gtk.ApplicationWindow):
 		self._widget_seek_bar.set_sensitive(False)
 		self._widget_seek_bar.set_draw_value(False)
 		self._widget_seek_bar.set_size_request(200, -1)
+		self._widget_seek_bar.connect('value-changed', self.on_seek_bar_value_changed)
 
 		self._widget_label_time_current = Gtk.Label('-')
 		self._widget_label_time_maximum = Gtk.Label('-')
@@ -330,6 +339,9 @@ class MainWindow(Gtk.ApplicationWindow):
 		if position[0] and duration[0] and duration[1] > 0:
 			self._widget_label_time_current.set_label(self._format_time(position[1]))
 			self._widget_label_time_maximum.set_label(self._format_time(duration[1]))
+
+			self._widget_seek_bar.handler_block_by_func(self.on_seek_bar_value_changed)
 			self._widget_seek_bar.set_value(position[1] / duration[1])
+			self._widget_seek_bar.handler_unblock_by_func(self.on_seek_bar_value_changed)
 		else:
 			self._widget_seek_bar.set_value(0.0)
