@@ -175,7 +175,8 @@ class MainWindow(Gtk.ApplicationWindow):
 		self.skip_forward(preview=True)
 
 	def on_button_choices_enqueue_clicked(self, widget, index):
-		self._queue.append((self._choices[index], None))
+		choice = self._choices.pop(index)
+		self._queue.append((choice, self._choices))
 		self._update_choices()
 
 	def on_button_playpause_clicked(self, widget):
