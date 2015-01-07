@@ -109,6 +109,8 @@ class MainWindow(Gtk.ApplicationWindow):
 		self._library = library.Library(os.path.join(xdg.BaseDirectory.save_config_path('jeff'), 'library.sqlite'))
 		self._library.scan_directories()
 
+		self._preview_state = None
+
 		self._queue = deque()
 		self.skip_forward()
 
@@ -130,14 +132,17 @@ class MainWindow(Gtk.ApplicationWindow):
 			self._library.add_directory(dialog.get_filename())
 			self._library.scan_directories()
 
-			if not self._player.get_property('uri'):
+			if not self._player.get_property('current-uri'):
 				if self.skip_forward():
 					self._widget_button_playpause.set_sensitive(True)
 					self._widget_button_skip_forward.set_sensitive(True)
 
 		dialog.destroy()
 
-	def skip_forward(self, preview=False):
+	def skip_forward(self):
+		if self._preview_state:
+			self._preview_end()
+
 		self._update_queue()
 
 		if len(self._queue) == 0:
@@ -170,11 +175,31 @@ class MainWindow(Gtk.ApplicationWindow):
 	# Signal Handlers
 	#---------------------------------------------------------------------------
 
-	def on_button_choices_preview_clicked(self, widget, index):
-		self._next_track = self._choices[index]['path']
-		self.skip_forward(preview=True)
+	def on_button_choices_preview_toggled(self, widget, index):
+		if self._preview_state:
+			if self._preview_state[0] == index:
+				if not widget.get_active():
+					self._preview_end()
+			else:
+				other_widget = self._widget_choices[self._preview_state[0]]['preview']
+				other_widget.handler_block_by_func(self.on_button_choices_preview_toggled)
+				other_widget.set_active(False)
+				other_widget.handler_unblock_by_func(self.on_button_choices_preview_toggled)
+
+				self._preview_state = (index, self._preview_state[1], self._preview_state[2], self._preview_state[3])
+				self._switch_track(GLib.filename_to_uri(self._choices[index]['path'], None))
+		else:
+			state = self._player.get_state(Gst.CLOCK_TIME_NONE)[1]
+			uri = self._player.get_property('current-uri')
+			position = self._player.query_position(Gst.Format.TIME)[1]
+
+			self._preview_state = (index, uri, state, position)
+			self._switch_track(GLib.filename_to_uri(self._choices[index]['path'], None))
 
 	def on_button_choices_enqueue_clicked(self, widget, index):
+		if self._preview_state:
+			self._preview_end()
+
 		choice = self._choices.pop(index)
 		self._queue.append((choice, self._choices))
 		self._update_choices()
@@ -192,7 +217,10 @@ class MainWindow(Gtk.ApplicationWindow):
 		self.skip_forward()
 
 	def on_player_eos(self, bus, message):
-		self.skip_forward()
+		if self._preview_state:
+			self._preview_end()
+		else:
+			self.skip_forward()
 
 	def on_player_state_changed(self, bus, message):
 		_, state, _ = message.parse_state_changed()
@@ -283,14 +311,12 @@ class MainWindow(Gtk.ApplicationWindow):
 			inner_box = Gtk.HBox(spacing=3)
 			box.pack_start(inner_box, True, True, 0)
 
-			widgets['preview'] = Gtk.Button()
+			widgets['preview'] = Gtk.ToggleButton('Preview')
 			widgets['preview'].set_sensitive(False)
-			widgets['preview'].set_label('Preview')
-			widgets['preview'].connect('clicked', self.on_button_choices_preview_clicked, i)
+			widgets['preview'].connect('toggled', self.on_button_choices_preview_toggled, i)
 
-			widgets['enqueue'] = Gtk.Button()
+			widgets['enqueue'] = Gtk.Button('Enqueue')
 			widgets['enqueue'].set_sensitive(False)
-			widgets['enqueue'].set_label('Enqueue')
 			widgets['enqueue'].connect('clicked', self.on_button_choices_enqueue_clicked, i)
 
 			widgets['label'] = Gtk.Label()
@@ -317,6 +343,28 @@ class MainWindow(Gtk.ApplicationWindow):
 		bus.add_signal_watch()
 		bus.connect('message::eos', self.on_player_eos)
 		bus.connect('message::state-changed', self.on_player_state_changed)
+
+	def _preview_end(self):
+		self._switch_track(self._preview_state[1], self._preview_state[2], self._preview_state[3])
+		self._preview_state = None
+
+		for widgets in self._widget_choices:
+			widgets['preview'].handler_block_by_func(self.on_button_choices_preview_toggled)
+			widgets['preview'].set_active(False)
+			widgets['preview'].handler_unblock_by_func(self.on_button_choices_preview_toggled)
+
+	def _switch_track(self, uri, state=Gst.State.PLAYING, position=None):
+		self._player.set_state(Gst.State.NULL)
+
+		if uri:
+			self._player.set_property('uri', uri)
+
+			if position:
+				self._player.set_state(Gst.State.PAUSED)
+				self._player.get_state(Gst.CLOCK_TIME_NONE)
+				self._player.seek_simple(Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT, position)
+
+			self._player.set_state(state)
 
 	def _update_choices(self):
 		self._choices = self._library.get_next_tracks(4)
