@@ -24,6 +24,8 @@
 import os
 import sqlite3
 
+from gi.repository import GLib
+
 #-------------------------------------------------------------------------------
 # Constants
 #-------------------------------------------------------------------------------
@@ -33,6 +35,17 @@ EXTENSIONS = ['flac', 'm4a', 'mp3', 'ogg', 'wav', 'wma']
 #-------------------------------------------------------------------------------
 # Classes
 #-------------------------------------------------------------------------------
+
+class Track(object):
+	def __init__(self, row):
+		self._id = row['id']
+		self._path = row['path']
+
+	def get_path(self):
+		return self._path
+
+	def get_uri(self):
+		return GLib.filename_to_uri(self._path, None)
 
 class Library(object):
 	def __init__(self, path):
@@ -57,7 +70,7 @@ class Library(object):
 			self._db.commit()
 
 	def get_next_tracks(self, count):
-		return self._db.execute('SELECT * FROM files ORDER BY RANDOM() LIMIT ?;', (count,)).fetchall()
+		return [Track(row) for row in self._db.execute('SELECT * FROM files ORDER BY RANDOM() LIMIT ?;', (count,)).fetchall()]
 
 	def remove_directory(self, path):
 		path = os.path.abspath(path)

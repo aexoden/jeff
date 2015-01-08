@@ -109,6 +109,7 @@ class MainWindow(Gtk.ApplicationWindow):
 		self._library = library.Library(os.path.join(xdg.BaseDirectory.save_config_path('jeff'), 'library.sqlite'))
 		self._library.scan_directories()
 
+		self._current_Track = None
 		self._preview_state = None
 
 		self._queue = deque()
@@ -148,12 +149,10 @@ class MainWindow(Gtk.ApplicationWindow):
 		if len(self._queue) == 0:
 			return False
 
-		track = self._queue.popleft()[0]['path']
+		track = self._queue.popleft()[0]
 
 		state = self._player.get_state(Gst.CLOCK_TIME_NONE)[1]
-		self._player.set_state(Gst.State.NULL)
-		self._player.set_property('uri', GLib.filename_to_uri(track, None))
-		self._player.set_state(state)
+		self._switch_track(track, state)
 
 		self._widget_button_playpause.set_sensitive(True)
 		self._widget_button_skip_forward.set_sensitive(True)
@@ -187,14 +186,14 @@ class MainWindow(Gtk.ApplicationWindow):
 				other_widget.handler_unblock_by_func(self.on_button_choices_preview_toggled)
 
 				self._preview_state = (index, self._preview_state[1], self._preview_state[2], self._preview_state[3])
-				self._switch_track(GLib.filename_to_uri(self._choices[index]['path'], None))
+				self._switch_track(self._choices[index])
 		else:
 			state = self._player.get_state(Gst.CLOCK_TIME_NONE)[1]
-			uri = self._player.get_property('current-uri')
+			track = self._current_track
 			position = self._player.query_position(Gst.Format.TIME)[1]
 
-			self._preview_state = (index, uri, state, position)
-			self._switch_track(GLib.filename_to_uri(self._choices[index]['path'], None))
+			self._preview_state = (index, track, state, position)
+			self._switch_track(self._choices[index])
 
 	def on_button_choices_enqueue_clicked(self, widget, index):
 		if self._preview_state:
@@ -353,11 +352,12 @@ class MainWindow(Gtk.ApplicationWindow):
 			widgets['preview'].set_active(False)
 			widgets['preview'].handler_unblock_by_func(self.on_button_choices_preview_toggled)
 
-	def _switch_track(self, uri, state=Gst.State.PLAYING, position=None):
+	def _switch_track(self, track, state=Gst.State.PLAYING, position=None):
 		self._player.set_state(Gst.State.NULL)
+		self._current_track = track
 
-		if uri:
-			self._player.set_property('uri', uri)
+		if track:
+			self._player.set_property('uri', track.get_uri())
 
 			if position:
 				self._player.set_state(Gst.State.PAUSED)
@@ -370,7 +370,7 @@ class MainWindow(Gtk.ApplicationWindow):
 		self._choices = self._library.get_next_tracks(4)
 
 		for index, choice in enumerate(self._choices):
-			self._widget_choices[index]['label'].set_label(choice['path'])
+			self._widget_choices[index]['label'].set_label(choice.get_path())
 			self._widget_choices[index]['preview'].set_sensitive(True)
 			self._widget_choices[index]['enqueue'].set_sensitive(True)
 
