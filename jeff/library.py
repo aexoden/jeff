@@ -39,10 +39,10 @@ EXTENSIONS = ['flac', 'm4a', 'mp3', 'ogg', 'wav', 'wma']
 #-------------------------------------------------------------------------------
 
 class Track(object):
-	def __init__(self, row):
+	def __init__(self, db, row):
+		self._db = db
 		self._id = row['id']
-		self._path = row['path']
-		self._tags = mutagen.File(self._path, easy=True)
+		self._select_file()
 
 	def get_description(self):
 		if self._tags and 'title' in self._tags:
@@ -58,6 +58,11 @@ class Track(object):
 
 	def get_uri(self):
 		return GLib.filename_to_uri(self._path, None)
+
+	def _select_file(self):
+		result = self._db.execute('SELECT * FROM files WHERE track_id = ? LIMIT 1;', (self._id,)).fetchone()
+		self._path = result['path']
+		self._tags = mutagen.File(self._path, easy=True)
 
 class Library(object):
 	def __init__(self, path):
@@ -82,7 +87,7 @@ class Library(object):
 			self._db.commit()
 
 	def get_next_tracks(self, count):
-		return [Track(row) for row in self._db.execute('SELECT * FROM files ORDER BY RANDOM() LIMIT ?;', (count,)).fetchall()]
+		return [Track(self._db, row) for row in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY RANDOM() LIMIT ?;', (count,)).fetchall()]
 
 	def remove_directory(self, path):
 		path = os.path.abspath(path)
@@ -111,18 +116,43 @@ class Library(object):
 			CREATE TABLE IF NOT EXISTS files (
 				id INTEGER PRIMARY KEY,
 				directory_id INTEGER REFERENCES directories(id) ON UPDATE CASCADE ON DELETE CASCADE,
+				track_id INTEGER REFERENCES tracks(id) ON UPDATE CASCADE ON DELETE CASCADE,
 				path TEXT UNIQUE
 			);
 		''')
+
+		self._db.execute('''
+			CREATE TABLE IF NOT EXISTS tracks (
+				id INTEGER PRIMARY KEY,
+				mbid TEXT UNIQUE
+			);
+		''')
+
+	def _add_file(self, directory_id, path):
+		tags = mutagen.File(path)
+
+		track_id = None
+
+		if tags and 'musicbrainz_trackid' in tags:
+			mbid = tags['musicbrainz_trackid'][0]
+			result = self._db.execute('SELECT * FROM tracks WHERE mbid = ?;', (mbid,)).fetchone()
+
+			if result:
+				track_id = result['id']
+				print('Reusing id {}'.format(track_id))
+			else:
+				track_id = self._db.execute('INSERT INTO tracks (mbid) VALUES (?);', (mbid,)).lastrowid
+
+		self._db.execute('INSERT INTO files (directory_id, track_id, path) VALUES (?, ?, ?);', (directory_id, track_id, path))
 
 	def _add_new_files(self):
 		for directory in self._db.execute('SELECT * FROM directories;'):
 			for root, dirs, files in os.walk(directory['path']):
 				for path in sorted(files):
 					if path.split('.')[-1].lower() in EXTENSIONS:
-						try:
-							self._db.execute('INSERT INTO files (directory_id, path) VALUES (?, ?);', (directory['id'], os.path.join(root, path)))
-						except sqlite3.IntegrityError as e:
-							continue
+						result = self._db.execute('SELECT * FROM files WHERE path = ?;', (os.path.join(root, path),)).fetchone()
+
+						if not result:
+							self._add_file(directory['id'], os.path.join(root, path))
 
 		self._db.commit()
