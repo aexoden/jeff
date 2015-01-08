@@ -270,8 +270,14 @@ class MainWindow(Gtk.ApplicationWindow):
 		frame = Gtk.Frame(label='Player')
 		main_box.pack_start(frame, True, True, 0)
 
+		vbox = Gtk.VBox(spacing=3, border_width=3)
+		frame.add(vbox)
+
+		self._widget_playing = Gtk.Label()
+		vbox.pack_start(self._widget_playing, True, True, 0)
+
 		box = Gtk.HBox(spacing=3, border_width=3)
-		frame.add(box)
+		vbox.pack_start(box, True, True, 0)
 
 		self._widget_button_playpause = self._create_button(self._image_play, self.on_button_playpause_clicked)
 		self._widget_button_stop = self._create_button(self._image_stop, self.on_button_stop_clicked)
@@ -357,6 +363,8 @@ class MainWindow(Gtk.ApplicationWindow):
 		self._current_track = track
 
 		if track:
+			self._widget_playing.set_label(track.get_description())
+
 			self._player.set_property('uri', track.get_uri())
 
 			if position:
@@ -365,6 +373,8 @@ class MainWindow(Gtk.ApplicationWindow):
 				self._player.seek_simple(Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT, position)
 
 			self._player.set_state(state)
+		else:
+			self._widget_playing.set_label('')
 
 	def _update_choices(self):
 		self._choices = self._library.get_next_tracks(4)
