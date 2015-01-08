@@ -370,7 +370,7 @@ class MainWindow(Gtk.ApplicationWindow):
 		self._choices = self._library.get_next_tracks(4)
 
 		for index, choice in enumerate(self._choices):
-			self._widget_choices[index]['label'].set_label(choice.get_path())
+			self._widget_choices[index]['label'].set_label(choice.get_description())
 			self._widget_choices[index]['preview'].set_sensitive(True)
 			self._widget_choices[index]['enqueue'].set_sensitive(True)
 

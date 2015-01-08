@@ -24,6 +24,8 @@
 import os
 import sqlite3
 
+import mutagen
+
 from gi.repository import GLib
 
 #-------------------------------------------------------------------------------
@@ -40,6 +42,16 @@ class Track(object):
 	def __init__(self, row):
 		self._id = row['id']
 		self._path = row['path']
+		self._tags = mutagen.File(self._path, easy=True)
+
+	def get_description(self):
+		if self._tags and 'title' in self._tags:
+				if 'artist' in self._tags:
+					return '{} - {}'.format(self._tags['artist'][0], self._tags['title'][0])
+				else:
+					return 'Unknown Artist - {}'.format(self._tags['title'][0])
+		else:
+			return os.path.split(self._path)[1]
 
 	def get_path(self):
 		return self._path
