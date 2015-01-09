@@ -131,8 +131,6 @@ class Library(object):
 	def _add_file(self, directory_id, path):
 		tags = mutagen.File(path)
 
-		track_id = None
-
 		if tags and 'musicbrainz_trackid' in tags:
 			mbid = tags['musicbrainz_trackid'][0]
 			result = self._db.execute('SELECT * FROM tracks WHERE mbid = ?;', (mbid,)).fetchone()
@@ -141,6 +139,8 @@ class Library(object):
 				track_id = result['id']
 			else:
 				track_id = self._db.execute('INSERT INTO tracks (mbid) VALUES (?);', (mbid,)).lastrowid
+		else:
+			track_id = self._db.execute('INSERT INTO tracks (mbid) VALUES (?);', (None,)).lastrowid
 
 		self._db.execute('INSERT INTO files (directory_id, track_id, path) VALUES (?, ?, ?);', (directory_id, track_id, path))
 
