@@ -223,17 +223,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
 	def on_player_state_changed(self, bus, message):
 		_, state, _ = message.parse_state_changed()
-
-		if state == Gst.State.NULL:
-			self._widget_seek_bar.set_sensitive(False)
-		elif state == Gst.State.READY:
-			self._widget_button_stop.set_sensitive(False)
-			self._widget_seek_bar.set_sensitive(True)
-		elif state == Gst.State.PAUSED:
-			self._widget_button_playpause.set_image(self._image_play)
-			self._widget_button_stop.set_sensitive(True)
-		elif state == Gst.State.PLAYING:
-			self._widget_button_playpause.set_image(self._image_pause)
+		self._update_buttons(state)
 
 	def on_seek_bar_value_changed(self, scale):
 		value = scale.get_value()
@@ -360,6 +350,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
 	def _switch_track(self, track, state=Gst.State.PLAYING, position=None):
 		self._player.set_state(Gst.State.NULL)
+		self._update_buttons(Gst.State.PAUSED)
 		self._current_track = track
 
 		if track:
@@ -375,6 +366,18 @@ class MainWindow(Gtk.ApplicationWindow):
 			self._player.set_state(state)
 		else:
 			self._widget_playing.set_label('')
+
+	def _update_buttons(self, state):
+		if state == Gst.State.NULL:
+			self._widget_seek_bar.set_sensitive(False)
+		elif state == Gst.State.READY:
+			self._widget_button_stop.set_sensitive(False)
+			self._widget_seek_bar.set_sensitive(True)
+		elif state == Gst.State.PAUSED:
+			self._widget_button_playpause.set_image(self._image_play)
+			self._widget_button_stop.set_sensitive(True)
+		elif state == Gst.State.PLAYING:
+			self._widget_button_playpause.set_image(self._image_pause)
 
 	def _update_choices(self):
 		self._choices = self._library.get_next_tracks(4)
