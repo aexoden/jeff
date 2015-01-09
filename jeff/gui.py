@@ -140,6 +140,8 @@ class MainWindow(Gtk.ApplicationWindow):
 
 		dialog.destroy()
 
+		self._update_choices()
+
 	def skip_forward(self):
 		if self._preview_state:
 			self._preview_end()
