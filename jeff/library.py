@@ -139,7 +139,6 @@ class Library(object):
 
 			if result:
 				track_id = result['id']
-				print('Reusing id {}'.format(track_id))
 			else:
 				track_id = self._db.execute('INSERT INTO tracks (mbid) VALUES (?);', (mbid,)).lastrowid
 
