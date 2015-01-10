@@ -358,9 +358,9 @@ class MainWindow(Gtk.ApplicationWindow):
 		self._current_track = track
 
 		if track:
-			self._widget_playing.set_label(track.get_description())
+			self._widget_playing.set_label(track.description)
 
-			self._player.set_property('uri', track.get_uri())
+			self._player.set_property('uri', track.uri)
 
 			if position:
 				self._player.set_state(Gst.State.PAUSED)
@@ -387,7 +387,7 @@ class MainWindow(Gtk.ApplicationWindow):
 		self._choices = self._library.get_next_tracks(4)
 
 		for index, choice in enumerate(self._choices):
-			self._widget_choices[index]['label'].set_label(choice.get_description())
+			self._widget_choices[index]['label'].set_label(choice.description)
 			self._widget_choices[index]['preview'].set_sensitive(True)
 			self._widget_choices[index]['enqueue'].set_sensitive(True)
 

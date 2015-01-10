@@ -45,7 +45,8 @@ class Track(object):
 		self._id = row['id']
 		self._select_file()
 
-	def get_description(self):
+	@property
+	def description(self):
 		if self._tags and 'title' in self._tags:
 				if 'artist' in self._tags:
 					return '{} - {}'.format(self._tags['artist'][0], self._tags['title'][0])
@@ -58,10 +59,12 @@ class Track(object):
 	def id(self):
 		return self._id
 
-	def get_path(self):
+	@property
+	def path(self):
 		return self._path
 
-	def get_uri(self):
+	@property
+	def uri(self):
 		return GLib.filename_to_uri(self._path, None)
 
 	def _select_file(self):
