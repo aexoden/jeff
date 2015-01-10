@@ -21,6 +21,7 @@
 #  SOFTWARE.
 #-------------------------------------------------------------------------------
 
+import datetime
 import os
 import sqlite3
 
@@ -66,7 +67,7 @@ class Track(object):
 
 class Library(object):
 	def __init__(self, path):
-		self._db = sqlite3.connect(path)
+		self._db = sqlite3.connect(path, detect_types=sqlite3.PARSE_DECLTYPES)
 		self._db.row_factory = sqlite3.Row
 
 		self._initialize_tables()
@@ -117,7 +118,8 @@ class Library(object):
 				id INTEGER PRIMARY KEY,
 				directory_id INTEGER REFERENCES directories(id) ON UPDATE CASCADE ON DELETE CASCADE,
 				track_id INTEGER REFERENCES tracks(id) ON UPDATE CASCADE ON DELETE CASCADE,
-				path TEXT UNIQUE
+				path TEXT UNIQUE,
+				last_update TIMESTAMP
 			);
 		''')
 
@@ -142,7 +144,53 @@ class Library(object):
 		else:
 			track_id = self._db.execute('INSERT INTO tracks (mbid) VALUES (?);', (None,)).lastrowid
 
-		self._db.execute('INSERT INTO files (directory_id, track_id, path) VALUES (?, ?, ?);', (directory_id, track_id, path))
+		self._db.execute('INSERT INTO files (directory_id, track_id, path, last_update) VALUES (?, ?, ?, ?);', (directory_id, track_id, path, datetime.datetime.utcnow()))
+
+	def _update_file(self, row):
+		track = self._db.execute('SELECT * FROM tracks WHERE id = ?;', (row['track_id'],)).fetchone()
+		tags = mutagen.File(row['path'])
+
+		if tags and 'musicbrainz_trackid' in tags:
+			mbid = tags['musicbrainz_trackid'][0]
+		else:
+			mbid = None
+
+		if mbid != track['mbid']:
+			# The mbid has changed since the last time we read the file, so we
+			# need to update the database. First, we need to determine whether
+			# or not the new mbid already exists, and determine our new track
+			# id.
+			result = self._db.execute('SELECT * FROM tracks WHERE mbid = ?;', (mbid,)).fetchone() if mbid else None
+
+			if result:
+				new_track_id = result['id']
+			else:
+				new_track_id = self._db.execute('INSERT INTO tracks (mbid) VALUES (?);', (mbid,)).lastrowid
+
+			delete = False
+
+			# Now, there are three possibilities:
+			#  1) The mbid was previously NULL, but now has a defined value. In
+			#     this case, we want to merge our statistics onto the new track.
+			#  2) The mbid was previously defined, but is now NULL. This seems
+			#     like a regression in the tags, but it could happen. In this
+			#     case, it's probably best to just create a new track and be
+			#     done with it.
+			#  3) The mbid was previously defined, but has changed. Here, again,
+			#     it seems like a bad idea to mess with any statistics. Just
+			#     assign the new track id and be done with it.
+			if not track['mbid'] and mbid:
+				# Update any data that uses the old track id to use the new
+				# track id. There is currently no such data.
+
+				# Delete the previous track id. To prevent the file entry from
+				# being deleted, we can't actually delete it now.
+				delete = True
+
+			self._db.execute('UPDATE files SET track_id = ? WHERE id = ?;', (new_track_id, row['id']))
+
+			if delete:
+				self._db.execute('DELETE FROM tracks WHERE id = ?;', (track['id'],))
 
 	def _add_new_files(self):
 		for directory in self._db.execute('SELECT * FROM directories;'):
@@ -153,5 +201,7 @@ class Library(object):
 
 						if not result:
 							self._add_file(directory['id'], os.path.join(root, path))
+						elif result['last_update'] < datetime.datetime.utcfromtimestamp(os.path.getmtime(os.path.join(root, path))):
+							self._update_file(result)
 
 		self._db.commit()
