@@ -151,10 +151,12 @@ class MainWindow(Gtk.ApplicationWindow):
 		if len(self._queue) == 0:
 			return False
 
-		track = self._queue.popleft()[0]
+		track, losing_tracks = self._queue.popleft()
 
 		state = self._player.get_state(Gst.CLOCK_TIME_NONE)[1]
 		self._switch_track(track, state)
+
+		self._library.update_playing(track, losing_tracks)
 
 		self._widget_button_playpause.set_sensitive(True)
 		self._widget_button_skip_forward.set_sensitive(True)
@@ -394,7 +396,7 @@ class MainWindow(Gtk.ApplicationWindow):
 			tracks = self._library.get_next_tracks(1)
 
 			if len(tracks) > 0:
-				self._queue.append((tracks[0], None))
+				self._queue.append((tracks[0], []))
 
 	def _update_seek_bar(self):
 		position = self._player.query_position(Gst.Format.TIME)
@@ -409,3 +411,4 @@ class MainWindow(Gtk.ApplicationWindow):
 			self._widget_seek_bar.handler_unblock_by_func(self.on_seek_bar_value_changed)
 		else:
 			self._widget_seek_bar.set_value(0.0)
+

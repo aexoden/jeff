@@ -54,6 +54,10 @@ class Track(object):
 		else:
 			return os.path.split(self._path)[1]
 
+	@property
+	def id(self):
+		return self._id
+
 	def get_path(self):
 		return self._path
 
@@ -100,6 +104,22 @@ class Library(object):
 		self._add_new_files()
 		self._remove_missing_files()
 
+	def update_playing(self, track, losing_tracks):
+		for losing_track in losing_tracks:
+			if track.id < losing_track.id:
+				first_track_id, second_track_id = track.id, losing_track.id
+				score = 1
+			else:
+				first_track_id, second_track_id = losing_track.id, track.id
+				score = -1
+
+			try:
+				self._db.execute('INSERT INTO pairs (first_track_id, second_track_id, score, last_update) VALUES (?, ?, ?, ?);', (first_track_id, second_track_id, score, datetime.datetime.now()))
+			except sqlite3.Error as e:
+				self._db.execute('UPDATE pairs SET score = score + ?, last_update = ? WHERE first_track_id = ? and second_track_id = ?;', (score, datetime.datetime.now(), first_track_id, second_track_id))
+
+		self._db.commit()
+
 	#---------------------------------------------------------------------------
 	# Private Methods
 	#---------------------------------------------------------------------------
@@ -128,6 +148,16 @@ class Library(object):
 			CREATE TABLE IF NOT EXISTS tracks (
 				id INTEGER PRIMARY KEY,
 				mbid TEXT UNIQUE
+			);
+		''')
+
+		self._db.execute('''
+			CREATE TABLE IF NOT EXISTS pairs (
+				first_track_id INTEGER REFERENCES tracks(id) ON UPDATE CASCADE ON DELETE CASCADE,
+				second_track_id INTEGER REFERENCES tracks(id) ON UPDATE CASCADE ON DELETE CASCADE,
+				score INTEGER,
+				last_update TIMESTAMP,
+				PRIMARY KEY(first_track_id, second_track_id)
 			);
 		''')
 
