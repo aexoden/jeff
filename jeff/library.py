@@ -98,6 +98,7 @@ class Library(object):
 
 	def scan_directories(self):
 		self._add_new_files()
+		self._remove_missing_files()
 
 	#---------------------------------------------------------------------------
 	# Private Methods
@@ -203,5 +204,17 @@ class Library(object):
 							self._add_file(directory['id'], os.path.join(root, path))
 						elif result['last_update'] < datetime.datetime.utcfromtimestamp(os.path.getmtime(os.path.join(root, path))):
 							self._update_file(result)
+
+		self._db.commit()
+
+	def _remove_missing_files(self):
+		for row in self._db.execute('SELECT * FROM files;').fetchall():
+			if not os.path.exists(row['path']):
+				track = self._db.execute('SELECT * FROM tracks WHERE id = ?;', (row['track_id'],)).fetchone()
+
+				if track['mbid']:
+					self._db.execute('DELETE FROM files WHERE id = ?;', (row['id'],))
+				else:
+					self._db.execute('DELETE FROM tracks WHERE id = ?;', (track['id'],))
 
 		self._db.commit()
