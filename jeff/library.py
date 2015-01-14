@@ -131,6 +131,13 @@ class Library(object):
 		self._db.execute('PRAGMA foreign_keys = ON;');
 
 		self._db.execute('''
+			CREATE TABLE IF NOT EXISTS config (
+				key TEXT PRIMARY KEY,
+				value TEXT
+			);
+		''')
+
+		self._db.execute('''
 			CREATE TABLE IF NOT EXISTS directories (
 				id INTEGER PRIMARY KEY,
 				path TEXT UNIQUE
@@ -163,6 +170,16 @@ class Library(object):
 				PRIMARY KEY(first_track_id, second_track_id)
 			);
 		''')
+
+		self._update_tables()
+		self._db.commit()
+
+	def _update_tables(self):
+		version = self._db.execute('SELECT * FROM config WHERE key = ?;', ('database_version',)).fetchone()
+
+		if not version:
+			version = 1
+			self._db.execute('INSERT INTO config (key, value) VALUES (?, ?);', ('database_version', version))
 
 	def _add_file(self, directory_id, path):
 		tags = mutagen.File(path)
