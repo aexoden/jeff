@@ -227,16 +227,21 @@ class Library(object):
 			#     like a regression in the tags, but it could happen. In this
 			#     case, it's probably best to just create a new track and be
 			#     done with it.
-			#  3) The mbid was previously defined, but has changed. Here, again,
-			#     it seems like a bad idea to mess with any statistics. Just
-			#     assign the new track id and be done with it.
-			if not track['mbid'] and mbid:
-				# Update any data that uses the old track id to use the new
-				# track id. There is currently no such data.
+			#  3) The mbid was previously defined, but has changed. The most
+			#     likely case here is that recordings were merged on
+			#     Musicbrainz, so it's probably best to move the data, as long
+			#     as the old track has no remaining files.
+			if mbid:
+				result = self._db.execute('SELECT COUNT(*) AS count FROM files WHERE track_id = ? AND id != ?;', (track['id'], row['id'])).fetchone()
 
-				# Delete the previous track id. To prevent the file entry from
-				# being deleted, we can't actually delete it now.
-				delete = True
+				if result['count'] == 0:
+					# Update any data that uses the old track id to use the new
+					# track id.
+					self._db.execute('UPDATE pairs SET first_track_id = ? WHERE first_track_id = ?;', (new_track_id, row['track_id']))
+					self._db.execute('UPDATE pairs SET second_track_id = ? WHERE second_track_id = ?;', (new_track_id, row['track_id']))
+
+					# Flag the previous track for deletion.
+					delete = True
 
 			self._db.execute('UPDATE files SET track_id = ? WHERE id = ?;', (new_track_id, row['id']))
 
