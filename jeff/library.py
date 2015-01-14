@@ -182,7 +182,7 @@ class Library(object):
 			self._db.execute('INSERT INTO config (key, value) VALUES (?, ?);', ('database_version', version))
 
 	def _add_file(self, directory_id, path):
-		tags = mutagen.File(path)
+		tags = mutagen.File(path, easy=True)
 
 		if tags and 'musicbrainz_trackid' in tags:
 			mbid = tags['musicbrainz_trackid'][0]
@@ -199,7 +199,7 @@ class Library(object):
 
 	def _update_file(self, row):
 		track = self._db.execute('SELECT * FROM tracks WHERE id = ?;', (row['track_id'],)).fetchone()
-		tags = mutagen.File(row['path'])
+		tags = mutagen.File(row['path'], easy=True)
 
 		if tags and 'musicbrainz_trackid' in tags:
 			mbid = tags['musicbrainz_trackid'][0]
