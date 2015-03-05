@@ -49,7 +49,10 @@ class Track(object):
 	def description(self):
 		if self._tags and 'title' in self._tags:
 				if 'artist' in self._tags:
-					return '{} - {}'.format(self._tags['artist'][0], self._tags['title'][0])
+					if 'album' in self._tags:
+						return '{} - {} ({})'.format(self._tags['artist'][0], self._tags['title'][0], self._tags['album'][0])
+					else:
+						return '{} - {}'.format(self._tags['artist'][0], self._tags['title'][0])
 				else:
 					return 'Unknown Artist - {}'.format(self._tags['title'][0])
 		else:
