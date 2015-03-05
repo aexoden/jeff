@@ -21,6 +21,7 @@
 #  SOFTWARE.
 #-------------------------------------------------------------------------------
 
+import copy
 import datetime
 import os
 import sqlite3
@@ -38,6 +39,68 @@ EXTENSIONS = ['flac', 'm4a', 'mp3', 'ogg', 'wav', 'wma']
 #-------------------------------------------------------------------------------
 # Classes
 #-------------------------------------------------------------------------------
+
+class DirectedAcyclicGraph(object):
+	def __init__(self):
+		self._graph = {}
+
+	#---------------------------------------------------------------------------
+	# Public Methods
+	#---------------------------------------------------------------------------
+
+	def add_edge(self, first_id, second_id, score):
+		if score > 0:
+			winning_id, losing_id = first_id, second_id
+		else:
+			winning_id, losing_id = second_id, first_id
+			score = 0 - score
+
+		if not self._has_path(winning_id, losing_id):
+			if losing_id not in self._graph:
+				self._graph[losing_id] = set()
+
+			self._graph[losing_id].add(winning_id)
+
+	def topological_sort(self):
+		graph = copy.deepcopy(self._graph)
+
+		for key in set().union(*graph.values()) - set(graph.keys()):
+			graph[key] = set()
+
+		while True:
+			leaders = set(
+				item
+				for item, dependencies in graph.items()
+				if not dependencies
+			)
+
+			if not leaders:
+				break
+
+			yield leaders
+
+			graph = {
+				item: (dependencies - leaders)
+				for item, dependencies in graph.items()
+				if item not in leaders
+			}
+
+	#---------------------------------------------------------------------------
+	# Private Methods
+	#---------------------------------------------------------------------------
+
+	def _has_path(self, first_id, second_id):
+		if first_id not in self._graph:
+			return False
+
+		if second_id in self._graph[first_id]:
+			return True
+
+		for target in self._graph[first_id]:
+			if self._has_path(target, second_id):
+				return True
+
+		return False
 
 class Track(object):
 	def __init__(self, db, row):
@@ -96,6 +159,15 @@ class Library(object):
 				return
 
 			self._db.commit()
+
+	def get_ranked_tracks(self):
+		pairs = self._db.execute('SELECT * FROM pairs ORDER BY ABS(score) DESC, last_update DESC;').fetchall()
+		graph = DirectedAcyclicGraph()
+
+		for pair in pairs:
+			graph.add_edge(pair['first_track_id'], pair['second_track_id'], pair['score'])
+
+		return graph.topological_sort()
 
 	def get_next_tracks(self, count):
 		return [Track(self._db, row) for row in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY RANDOM() LIMIT ?;', (count,)).fetchall()]
