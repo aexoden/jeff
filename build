@@ -1,0 +1,15 @@
+#!/bin/bash
+
+DEFAULT_VERSION=v0.0.0
+
+if [ -d .git ] ; then
+	VERSION=$(git describe --dirty 2>/dev/null)
+else
+	VERSION=$DEFAULT_VERSION
+fi
+
+if [ ! -f src/version.hh ] || ! grep -q \"$VERSION\" src/version.hh ; then
+	echo "#define JEFF_VERSION \"$VERSION\"" > src/version.hh
+fi
+
+tup
