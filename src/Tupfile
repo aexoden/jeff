@@ -1,4 +1,6 @@
 include_rules
 
+CXXFLAGS += -I../SQLiteCpp/include
+
 : foreach *.cc |> !cxx |>
-: *.o |> g++ $(LDFLAGS) %f -o %o |> jeff
+: *.o ../SQLiteCpp/src/libSQLiteCpp.a |> g++ $(LDFLAGS) %f -o %o |> jeff

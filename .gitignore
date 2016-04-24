@@ -2,3 +2,4 @@
 /.tup
 /src/jeff
 /src/version.hh
+/SQLiteCpp/src/libSQLiteCpp.a

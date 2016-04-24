@@ -1,4 +1,7 @@
 CXXFLAGS += -O2 -march=native -ggdb3
 CXXFLAGS += -pedantic -Wall -Wextra -Wwrite-strings -std=gnu++14
 
+LDFLAGS += `pkg-config --libs sqlite3`
+
 !cxx = |> g++ $(CXXFLAGS) -c %f -o %o |> %B.o
+!ar = |> ar crs %o %f |>

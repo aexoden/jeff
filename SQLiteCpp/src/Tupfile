@@ -1,0 +1,6 @@
+include_rules
+
+CXXFLAGS += -I../include
+
+: foreach *.cpp |> !cxx |>
+: *.o |> !ar |> libSQLiteCpp.a

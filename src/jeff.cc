@@ -20,7 +20,11 @@
  * SOFTWARE.
  */
 
+#include <SQLiteCpp/SQLiteCpp.h>
+
  int main(int argc, char ** argv)
  {
+	 SQLite::Database db(":memory:");
+
 	 return 0;
  }
