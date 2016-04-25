@@ -20,11 +20,19 @@
  * SOFTWARE.
  */
 
-#include <SQLiteCpp/SQLiteCpp.h>
+#include <iostream>
+
+#include <glibmm/init.h>
+
+#include "version.hh"
 
  int main(int argc, char ** argv)
  {
-	 SQLite::Database db(":memory:");
+	 setlocale(LC_ALL, "");
+
+	 Glib::init();
+
+	 std::cout << "JEFF " << JEFF_VERSION << std::endl;
 
 	 return 0;
  }
