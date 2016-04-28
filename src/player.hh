@@ -20,31 +20,21 @@
  * SOFTWARE.
  */
 
-#include <iostream>
-
-#include <glibmm/convert.h>
-#include <glibmm/init.h>
 #include <glibmm/main.h>
-#include <gstreamermm/init.h>
+#include <glibmm/ustring.h>
+#include <gstreamermm/bus.h>
+#include <gstreamermm/playbin.h>
 
-#include "player.hh"
-#include "version.hh"
-
-int main(int argc, char ** argv)
+class Player
 {
-	setlocale(LC_ALL, "");
+	public:
+		Player(const Glib::RefPtr<Glib::MainLoop> & mainloop);
 
-	Glib::init();
-	Gst::init();
+		void enqueue(const Glib::ustring & uri);
 
-	std::cout << "JEFF " << JEFF_VERSION << std::endl;
+		bool on_bus_message(const Glib::RefPtr<Gst::Bus> &, const Glib::RefPtr<Gst::Message> & message);
 
-	auto mainloop = Glib::MainLoop::create();
-
-	Player player(mainloop);
-	player.enqueue(Glib::filename_to_uri(argv[1]));
-
-	mainloop->run();
-
-	return 0;
-}
+	private:
+		Glib::RefPtr<Glib::MainLoop> _mainloop;
+		Glib::RefPtr<Gst::PlayBin> _playbin;
+};

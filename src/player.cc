@@ -20,31 +20,43 @@
  * SOFTWARE.
  */
 
-#include <iostream>
-
-#include <glibmm/convert.h>
-#include <glibmm/init.h>
-#include <glibmm/main.h>
-#include <gstreamermm/init.h>
-
 #include "player.hh"
-#include "version.hh"
 
-int main(int argc, char ** argv)
+Player::Player(const Glib::RefPtr<Glib::MainLoop> & mainloop) :
+	_mainloop(mainloop),
+	_playbin(Gst::PlayBin::create())
 {
-	setlocale(LC_ALL, "");
+	if (_playbin)
+	{
+		auto bus = _playbin->get_bus();
+		bus->add_watch(sigc::mem_fun(this, &Player::on_bus_message));
+	}
+}
 
-	Glib::init();
-	Gst::init();
+void Player::enqueue(const Glib::ustring & uri)
+{
+	if (_playbin)
+	{
+		_playbin->property_uri() = uri;
+		_playbin->set_state(Gst::STATE_PLAYING);
+	}
+	else
+	{
+		_mainloop->quit();
+	}
+}
 
-	std::cout << "JEFF " << JEFF_VERSION << std::endl;
+bool Player::on_bus_message(const Glib::RefPtr<Gst::Bus> &, const Glib::RefPtr<Gst::Message> & message)
+{
+	switch (message->get_message_type())
+	{
+		case Gst::MESSAGE_EOS:
+			_playbin->set_state(Gst::STATE_NULL);
+			_mainloop->quit();
+			return false;
+		default:
+			break;
+	}
 
-	auto mainloop = Glib::MainLoop::create();
-
-	Player player(mainloop);
-	player.enqueue(Glib::filename_to_uri(argv[1]));
-
-	mainloop->run();
-
-	return 0;
+	return true;
 }
