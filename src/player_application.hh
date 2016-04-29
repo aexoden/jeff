@@ -20,21 +20,30 @@
  * SOFTWARE.
  */
 
-#include <glibmm/main.h>
-#include <glibmm/ustring.h>
-#include <gstreamermm/bus.h>
-#include <gstreamermm/playbin.h>
+#ifndef JEFF_PLAYER_APPLICATION_HH
+#define JEFF_PLAYER_APPLICATION_HH
 
-class Player
+#include <gstreamermm/playbin.h>
+#include <gtkmm/application.h>
+#include <gtkmm/builder.h>
+
+#include "player_window.hh"
+
+class PlayerApplication : public Gtk::Application
 {
 	public:
-		Player(const Glib::RefPtr<Glib::MainLoop> & mainloop);
+		static Glib::RefPtr<PlayerApplication> create(const Glib::RefPtr<Gst::PlayBin> & playbin);
 
-		void enqueue(const Glib::ustring & uri);
+	protected:
+		PlayerApplication(const Glib::RefPtr<Gst::PlayBin> & playbin);
 
-		bool on_bus_message(const Glib::RefPtr<Gst::Bus> &, const Glib::RefPtr<Gst::Message> & message);
+		void on_startup() override;
+		void on_activate() override;
 
 	private:
-		Glib::RefPtr<Glib::MainLoop> _mainloop;
-		Glib::RefPtr<Gst::PlayBin> _playbin;
+		void _on_action_quit();
+
+		PlayerWindow _window;
 };
+
+#endif

@@ -24,10 +24,9 @@
 
 #include <glibmm/convert.h>
 #include <glibmm/init.h>
-#include <glibmm/main.h>
 #include <gstreamermm/init.h>
 
-#include "player.hh"
+#include "player_application.hh"
 #include "version.hh"
 
 int main(int argc, char ** argv)
@@ -37,14 +36,16 @@ int main(int argc, char ** argv)
 	Glib::init();
 	Gst::init();
 
-	std::cout << "JEFF " << JEFF_VERSION << std::endl;
+	auto playbin = Gst::PlayBin::create();
 
-	auto mainloop = Glib::MainLoop::create();
+	if (!playbin)
+	{
+		std::cerr << "Unable to create GStreamer PlayBin." << std::endl;
+		return -1;
+	}
 
-	Player player(mainloop);
-	player.enqueue(Glib::filename_to_uri(argv[1]));
+	playbin->property_uri() = Glib::filename_to_uri(argv[1]);
 
-	mainloop->run();
-
-	return 0;
+	auto application = PlayerApplication::create(playbin);
+	application->run();
 }
