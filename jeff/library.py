@@ -52,9 +52,10 @@ class DirectedAcyclicGraph(object):
     def add_edge(self, first_id, second_id, score):
         if score > 0:
             winning_id, losing_id = first_id, second_id
-        else:
+        elif score < 0:
             winning_id, losing_id = second_id, first_id
-            score = 0 - score
+        else:
+            return
 
         if not self._has_path(winning_id, losing_id):
             if losing_id not in self._graph:
