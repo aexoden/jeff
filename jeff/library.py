@@ -212,14 +212,16 @@ class Library(object):
 
             self._db.commit()
 
-    def get_ranked_tracks(self):
-        pairs = self._db.execute('SELECT * FROM pairs ORDER BY ABS(score) DESC, last_update DESC;').fetchall()
+    def get_ranked_tracks(self, full_graph=False):
         graph = DirectedAcyclicGraph()
 
-        for pair in pairs:
+        for row in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0'):
+            graph.add_vertex(row['id'])
+
+        for pair in self._db.execute('SELECT p.* FROM pairs p, files f1, files f2 WHERE p.first_track_id = f1.track_id AND p.second_track_id = f2.track_id GROUP BY f1.track_id, f2.track_id ORDER BY ABS(score) DESC, p.last_update DESC;').fetchall():
             graph.add_edge(pair['first_track_id'], pair['second_track_id'], pair['score'])
 
-        return graph.topological_sort()
+        return graph if full_graph else graph.topological_sort()
 
     def get_next_tracks(self, count):
         return [Track(self._db, row) for row in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY RANDOM() LIMIT ?;', (count,)).fetchall()]
