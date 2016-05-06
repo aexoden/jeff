@@ -122,6 +122,9 @@ class DirectedAcyclicGraph(object):
 
         return False
 
+    def __len__(self):
+        return len(self._graph)
+
 
 class Track(object):
     def __init__(self, db, row, graph=None):
@@ -232,7 +235,12 @@ class Library(object):
             return [Track(self._db, row) for row in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY RANDOM() LIMIT 2;').fetchall()]
         else:
             try:
-                return random.choice(sorted([Track(self._db, {'id': x}, self.get_ranked_tracks(True)) for x in list(itertools.chain.from_iterable(self.get_ranked_tracks()))]))
+                graph = self.get_ranked_tracks(True)
+
+                if len(graph) == 0:
+                    return []
+                else:
+                    return random.choice(sorted([Track(self._db, {'id': x}, graph) for x in list(itertools.chain.from_iterable(graph.topological_sort()))]))
             except SortError as e:
                 return [e.x, e.y]
 
