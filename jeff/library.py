@@ -315,6 +315,7 @@ class Library(object):
                 if result['count'] == 0:
                     # Update any data that uses the old track id to use the new
                     # track id.
+                    # TODO: Pairs need to be merged, not merely modified.
                     self._db.execute('UPDATE pairs SET first_track_id = ? WHERE first_track_id = ?;', (new_track_id, row['track_id']))
                     self._db.execute('UPDATE pairs SET second_track_id = ? WHERE second_track_id = ?;', (new_track_id, row['track_id']))
 
