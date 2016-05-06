@@ -171,6 +171,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._widget_button_skip_forward.set_sensitive(True)
 
         self._update_seek_bar()
+        self._update_choices()
 
         return True
 
