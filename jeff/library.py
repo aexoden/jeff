@@ -240,7 +240,7 @@ class Library(object):
                 if len(graph) == 0:
                     return []
                 else:
-                    return random.choice(sorted([Track(self._db, {'id': x}, graph) for x in list(itertools.chain.from_iterable(graph.topological_sort()))]))
+                    return random.sample(sorted([Track(self._db, {'id': x}, graph) for x in list(itertools.chain.from_iterable(graph.topological_sort()))]), 2)
             except SortError as e:
                 return [e.x, e.y]
 
