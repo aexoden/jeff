@@ -41,6 +41,12 @@ EXTENSIONS = ['flac', 'm4a', 'mp3', 'ogg', 'wav', 'wma']
 # Classes
 #-------------------------------------------------------------------------------
 
+class SortError(BaseException):
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+
 class DirectedAcyclicGraph(object):
     def __init__(self):
         self._graph = {}
@@ -114,21 +120,22 @@ class DirectedAcyclicGraph(object):
 
 
 class Track(object):
-    def __init__(self, db, row):
+    def __init__(self, db, row, graph=None):
         self._db = db
         self._id = row['id']
+        self._graph = graph
         self._select_file()
 
     @property
     def description(self):
-        if self._tags and 'title' in self._tags:
-                if 'artist' in self._tags:
-                    if 'album' in self._tags:
-                        return '{} - {} ({})'.format(self._tags['artist'][0], self._tags['title'][0], self._tags['album'][0])
+        if self.tags and 'title' in self.tags:
+                if 'artist' in self.tags:
+                    if 'album' in self.tags:
+                        return '{} - {} ({})'.format(self.tags['artist'][0], self.tags['title'][0], self.tags['album'][0])
                     else:
-                        return '{} - {}'.format(self._tags['artist'][0], self._tags['title'][0])
+                        return '{} - {}'.format(self.tags['artist'][0], self.tags['title'][0])
                 else:
-                    return 'Unknown Artist - {}'.format(self._tags['title'][0])
+                    return 'Unknown Artist - {}'.format(self.tags['title'][0])
         else:
             return os.path.split(self._path)[1]
 
@@ -141,13 +148,46 @@ class Track(object):
         return self._path
 
     @property
+    def tags(self):
+        if not self._tags:
+            self._tags = mutagen.File(self._path, easy=True)
+
+        return self._tags
+
+    @property
     def uri(self):
         return GLib.filename_to_uri(self._path, None)
+
+    def __lt__(self, other):
+        if self._graph.has_path(other._id, self._id):
+            return True
+        elif self._graph.has_path(self._id, other._id):
+            return False
+        else:
+            raise SortError(self, other)
+
+    def __le__(self, other):
+        self._unimplemented(other)
+
+    def __eq__(self, other):
+        self._unimplemented(other)
+
+    def __ne__(self, other):
+        self._unimplemented(other)
+
+    def __gt__(self, other):
+        self._unimplemented(other)
+
+    def __ge__(self, other):
+        self._unimplemented(other)
+
+    def _unimplemented(self, other):
+        raise NotImplemented()
 
     def _select_file(self):
         result = self._db.execute('SELECT * FROM files WHERE track_id = ? LIMIT 1;', (self._id,)).fetchone()
         self._path = result['path']
-        self._tags = mutagen.File(self._path, easy=True)
+        self._tags = None
 
 
 class Library(object):
