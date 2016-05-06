@@ -63,6 +63,10 @@ class DirectedAcyclicGraph(object):
 
             self._graph[losing_id].add(winning_id)
 
+    def add_vertex(self, vertex_id):
+        if vertex_id not in self._graph:
+            self._graph[vertex_id] = set()
+
     def topological_sort(self):
         graph = copy.deepcopy(self._graph)
 
