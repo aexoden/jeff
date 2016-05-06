@@ -74,6 +74,10 @@ class Application(Gtk.Application):
                             <attribute name="label" translatable="yes">_Add Directory</attribute>
                             <attribute name="action">app.add_directory</attribute>
                         </item>
+                        <item>
+                            <attribute name="label" translatable="yes">_Scan Directories</attribute>
+                            <attribute name="action">app.scan_directories</attribute>
+                        </item>
                     </section>
                     <section>
                         <item>
@@ -89,10 +93,14 @@ class Application(Gtk.Application):
         self.set_app_menu(builder.get_object('app-menu'))
 
         self._add_action('add_directory', self.on_action_add_directory)
+        self._add_action('scan_directories', self.on_action_scan_directories)
         self._add_action('quit', self.on_action_quit)
 
     def on_action_add_directory(self, action, user_data):
         self._window.add_directory()
+
+    def on_action_scan_directories(self, action, user_data):
+        self._window.scan_directories()
 
     def on_action_quit(self, action, user_data):
         self._window.destroy()
@@ -149,6 +157,10 @@ class MainWindow(Gtk.ApplicationWindow):
 
         dialog.destroy()
 
+        self._update_choices()
+
+    def scan_directories(self):
+        self._library.scan_directories()
         self._update_choices()
 
     def skip_forward(self):
