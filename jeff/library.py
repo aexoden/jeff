@@ -57,7 +57,7 @@ class DirectedAcyclicGraph(object):
         else:
             return
 
-        if not self._has_path(winning_id, losing_id):
+        if not self.has_path(winning_id, losing_id):
             if losing_id not in self._graph:
                 self._graph[losing_id] = set()
 
@@ -91,20 +91,24 @@ class DirectedAcyclicGraph(object):
                 if item not in leaders
             }
 
-    #---------------------------------------------------------------------------
-    # Private Methods
-    #---------------------------------------------------------------------------
+        if graph:
+            print('Cycles: {}'.format(', '.join(repr(x) for x in graph.items())))
 
-    def _has_path(self, first_id, second_id):
-        if first_id not in self._graph:
-            return False
+    def has_path(self, first_id, second_id):
+        q = deque()
+        q.append(first_id)
+        discovered = set([first_id])
 
-        if second_id in self._graph[first_id]:
-            return True
+        while len(q) > 0:
+            element = q.popleft()
 
-        for target in self._graph[first_id]:
-            if self._has_path(target, second_id):
-                return True
+            for target in self._graph[element]:
+                if target == second_id:
+                    return True
+
+                if target not in discovered:
+                    q.append(target)
+                    discovered.add(target)
 
         return False
 
