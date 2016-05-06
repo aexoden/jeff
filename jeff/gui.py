@@ -49,6 +49,8 @@ class Application(Gtk.Application):
         Gtk.Application.__init__(self, application_id='com.calindora.jeff')
         Gst.init()
 
+        GLib.set_application_name('Jeff')
+
         self.connect('activate', self.on_activate)
         self.connect('startup', self.on_startup)
 
@@ -107,7 +109,7 @@ class Application(Gtk.Application):
 
 class MainWindow(Gtk.ApplicationWindow):
     def __init__(self):
-        Gtk.ApplicationWindow.__init__(self, title='Jeff')
+        Gtk.ApplicationWindow.__init__(self)
 
         self._create_images()
         self._create_widgets()
