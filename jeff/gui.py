@@ -39,12 +39,6 @@ from gi.repository import Gtk
 
 from . import library
 
-#-------------------------------------------------------------------------------
-# Constants
-#-------------------------------------------------------------------------------
-
-CHOICES = 2
-
 
 #-------------------------------------------------------------------------------
 # Classes
@@ -320,7 +314,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
         self._widget_choices = []
 
-        for i in range(CHOICES):
+        for i in range(2):
             widgets = {}
 
             inner_box = Gtk.HBox(spacing=3)
@@ -400,7 +394,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self._widget_button_playpause.set_image(self._image_pause)
 
     def _update_choices(self):
-        self._choices = self._library.get_next_tracks(CHOICES)
+        self._choices = self._library.get_next_tracks(False)
 
         for index, choice in enumerate(self._choices):
             self._widget_choices[index]['label'].set_label(choice.description)
@@ -409,7 +403,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _update_queue(self):
         if len(self._queue) == 0:
-            tracks = self._library.get_next_tracks(1)
+            tracks = self._library.get_next_tracks(True)
 
             if len(tracks) > 0:
                 self._queue.append((tracks[0], []))

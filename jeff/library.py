@@ -23,8 +23,12 @@
 
 import copy
 import datetime
+import itertools
 import os
+import random
 import sqlite3
+
+from collections import deque
 
 import mutagen
 
@@ -223,8 +227,14 @@ class Library(object):
 
         return graph if full_graph else graph.topological_sort()
 
-    def get_next_tracks(self, count):
-        return [Track(self._db, row) for row in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY RANDOM() LIMIT ?;', (count,)).fetchall()]
+    def get_next_tracks(self, true_random=True):
+        if true_random:
+            return [Track(self._db, row) for row in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY RANDOM() LIMIT 2;').fetchall()]
+        else:
+            try:
+                return random.choice(sorted([Track(self._db, {'id': x}, self.get_ranked_tracks(True)) for x in list(itertools.chain.from_iterable(self.get_ranked_tracks()))]))
+            except SortError as e:
+                return [e.x, e.y]
 
     def remove_directory(self, path):
         path = os.path.abspath(path)
