@@ -39,6 +39,12 @@ from gi.repository import Gtk
 
 from . import library
 
+#-------------------------------------------------------------------------------
+# Constants
+#-------------------------------------------------------------------------------
+
+CHOICES = 2
+
 
 #-------------------------------------------------------------------------------
 # Classes
@@ -314,7 +320,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
         self._widget_choices = []
 
-        for i in range(4):
+        for i in range(CHOICES):
             widgets = {}
 
             inner_box = Gtk.HBox(spacing=3)
@@ -394,7 +400,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self._widget_button_playpause.set_image(self._image_pause)
 
     def _update_choices(self):
-        self._choices = self._library.get_next_tracks(4)
+        self._choices = self._library.get_next_tracks(CHOICES)
 
         for index, choice in enumerate(self._choices):
             self._widget_choices[index]['label'].set_label(choice.description)
