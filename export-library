@@ -32,50 +32,57 @@ import xdg.BaseDirectory
 
 import jeff.library
 
+
 #-------------------------------------------------------------------------------
 # Classes
 #-------------------------------------------------------------------------------
 
 class JeffSort(object):
-	def __init__(self):
-		self._library = jeff.library.Library(os.path.join(xdg.BaseDirectory.save_config_path('jeff'), 'library.sqlite'))
-		self._db = self._library._db
+    def __init__(self):
+        self._library = jeff.library.Library(os.path.join(xdg.BaseDirectory.save_config_path('jeff'), 'library.sqlite'))
+        self._db = self._library._db
 
-	#---------------------------------------------------------------------------
-	# Public Methods
-	#---------------------------------------------------------------------------
+    #---------------------------------------------------------------------------
+    # Public Methods
+    #---------------------------------------------------------------------------
 
-	def run(self, full=False):
-		for index, track_ids in enumerate(self._library.get_ranked_tracks()):
-			if not full and len(track_ids) > 1:
-				break
+    def run(self, full=False):
+        rank = 1
 
-			for track_id in sorted(track_ids):
-				files = sorted([(self._get_file_score(f), f) for f in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = ? AND t.id = f.track_id;', (track_id,)).fetchall()], reverse=True, key=lambda v: v[0])
+        for index, track_ids in enumerate(self._library.get_ranked_tracks()):
+            if not full and len(track_ids) > 1:
+                break
 
-				if len(files) > 0:
-					yield (index + 1, files[0][1])
+            for track_id in sorted(track_ids):
+                files = sorted([(self._get_file_score(f), f) for f in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = ? AND t.id = f.track_id;', (track_id,)).fetchall()], reverse=True, key=lambda v: v[0])
 
-	#---------------------------------------------------------------------------
-	# Private Methods
-	#---------------------------------------------------------------------------
+                if len(files) > 0:
+                    yield (index + 1, rank, files[0][1])
 
-	def _get_file_score(self, f):
-		return os.path.getsize(f['path'])
+            rank += len(track_ids)
+
+    #---------------------------------------------------------------------------
+    # Private Methods
+    #---------------------------------------------------------------------------
+
+    def _get_file_score(self, f):
+        return os.path.getsize(f['path'])
 
 #-------------------------------------------------------------------------------
 # Functions
 #-------------------------------------------------------------------------------
 
+
 def format_size(size):
-	if size < 1024:
-		return ('{} B'.format(size))
-	elif size < 1048576:
-		return ('{:.2f} KiB'.format(size / 1024))
-	elif size < 1024 * 1024 * 1024:
-		return ('{:.2f} MiB'.format(size / 1024 / 1024))
-	elif size < 1024 ** 4:
-		return ('{:.2f} GiB'.format(size / 1024 / 1024 / 1024))
+    if size < 1024:
+        return ('{} B'.format(size))
+    elif size < 1048576:
+        return ('{:.2f} KiB'.format(size / 1024))
+    elif size < 1024 * 1024 * 1024:
+        return ('{:.2f} MiB'.format(size / 1024 / 1024))
+    elif size < 1024 ** 4:
+        return ('{:.2f} GiB'.format(size / 1024 / 1024 / 1024))
+
 
 def sanitize(data):
     data = data.replace('"', '___DQ___')
@@ -97,157 +104,157 @@ def sanitize(data):
 
     return data
 
+
 def desanitize(data):
-	data = data.replace('___DQ___', '"')
-	data = data.replace('___AS___', '*')
-	data = data.replace('___AM___', '&')
-	data = data.replace('___QM___', '?')
-	data = data.replace('___LA___', '<')
-	data = data.replace('___RA___', '>')
-	data = data.replace('___PI___', '|')
-	data = data.replace('___CO___', ':')
-	data = data.replace('___ST___', '$')
-	data = data.replace('___FP___', '.')
-	data = data.replace('___FS___', ' ')
-	return data
+    data = data.replace('___DQ___', '"')
+    data = data.replace('___AS___', '*')
+    data = data.replace('___AM___', '&')
+    data = data.replace('___QM___', '?')
+    data = data.replace('___LA___', '<')
+    data = data.replace('___RA___', '>')
+    data = data.replace('___PI___', '|')
+    data = data.replace('___CO___', ':')
+    data = data.replace('___ST___', '$')
+    data = data.replace('___FP___', '.')
+    data = data.replace('___FS___', ' ')
+    return data
 
 #-------------------------------------------------------------------------------
 # Main Execution
 #-------------------------------------------------------------------------------
 
 if __name__ == '__main__':
-	if len(sys.argv) < 4:
-		print('USAGE: {} <mode> <maxsize> <base-path> <path>'.format(sys.argv[0]))
-		exit(1)
+    if len(sys.argv) < 4:
+        print('USAGE: {} <mode> <maxsize> <base-path> <path>'.format(sys.argv[0]))
+        exit(1)
 
-	sorter = JeffSort()
-	mode = sys.argv[1]
-	max_size = int(sys.argv[2]) * 1048576
-	base_directory = sys.argv[3]
-	target_directory = sys.argv[4]
+    sorter = JeffSort()
+    mode = sys.argv[1]
+    max_size = int(sys.argv[2]) * 1048576
+    base_directory = sys.argv[3]
+    target_directory = sys.argv[4]
 
-	current_size = 0
-	stored_files = []
-	artists = {}
-	count = 0
-	length = 0.0
+    current_size = 0
+    stored_files = []
+    artists = {}
+    count = 0
+    length = 0.0
 
-	for rank, f in sorter.run(mode in ['print']):
-		if mode == 'print':
-			print('{:6} {}'.format(rank, f['path']))
-			continue
+    for rank, true_rank, f in sorter.run(mode in ['print']):
+        if mode == 'print':
+            print('{:6} {}'.format(rank, f['path']))
+            continue
 
-		if mode == 'artists':
-			tags = mutagen.File(f['path'], easy=True)
+        if mode == 'artists':
+            tags = mutagen.File(f['path'], easy=True)
 
-			if not tags:
-				continue
+            if not tags:
+                continue
 
-			if not tags['artist']:
-				continue
+            if not tags['artist']:
+                continue
 
-			artist = tags['artist'][0]
+            artist = tags['artist'][0]
 
-			if ' feat. ' in artist:
-				artist = artist.split(' feat. ')[0]
+            if ' feat. ' in artist:
+                artist = artist.split(' feat. ')[0]
 
-			if ' with ' in artist:
-				artist = artist.split(' with ')[0]
+            if ' with ' in artist:
+                artist = artist.split(' with ')[0]
 
-			try:
-				if artist not in artists:
-					artists[artist] = (0, 0)
+            try:
+                if artist not in artists:
+                    artists[artist] = (0, 0)
 
-				artists[artist] = (artists[artist][0] + 1, artists[artist][1] + rank)
-			except KeyError as e:
-				pass
+                artists[artist] = (artists[artist][0] + 1, artists[artist][1] + rank)
+            except KeyError as e:
+                pass
 
-			continue
+            continue
 
-		if current_size > max_size:
-			break
+        if current_size > max_size:
+            break
 
-		if os.path.exists(f['path']):
-			matches = re.match('{}/(.*)/([^/]*)\.([^.]*)'.format(base_directory), f['path'])
+        if os.path.exists(f['path']):
+            matches = re.match('{}/(.*)/([^/]*)\.([^.]*)'.format(base_directory), f['path'])
 
-			directory = matches.group(1)
-			filename = matches.group(2)
-			extension = matches.group(3)
+            directory = matches.group(1)
+            filename = matches.group(2)
+            extension = matches.group(3)
 
-			tags = mutagen.File(f['path'], easy=True)
-			length += tags.info.length
-			count += 1
+            tags = mutagen.File(f['path'], easy=True)
+            length += tags.info.length
+            count += 1
 
-			file_data = subprocess.check_output(['file', f['path']]).decode('utf-8')
-			encode = False
+            file_data = subprocess.check_output(['file', f['path']]).decode('utf-8')
+            encode = False
 
-			if extension == 'flac' or 'layer II,' in file_data:
-				encode = True
-				new_filename = os.path.join(target_directory, directory, '{}.ogg'.format(filename))
-			else:
-				new_filename = os.path.join(target_directory, directory, '{}.{}'.format(filename, extension))
+            if extension == 'flac' or 'layer II,' in file_data:
+                encode = True
+                new_filename = os.path.join(target_directory, directory, '{}.ogg'.format(filename))
+            else:
+                new_filename = os.path.join(target_directory, directory, '{}.{}'.format(filename, extension))
 
-			if not os.path.isdir(os.path.join(target_directory, sanitize(directory))):
-				os.makedirs(os.path.join(target_directory, sanitize(directory)))
+            if not os.path.isdir(os.path.join(target_directory, sanitize(directory))):
+                os.makedirs(os.path.join(target_directory, sanitize(directory)))
 
-			if os.path.exists(sanitize(new_filename)) and os.path.getmtime(sanitize(new_filename)) >= os.path.getmtime(f['path']):
-				current_size += os.path.getsize(sanitize(new_filename))
-				stored_files.append(sanitize(new_filename))
-				continue
+            if os.path.exists(sanitize(new_filename)) and os.path.getmtime(sanitize(new_filename)) >= os.path.getmtime(f['path']):
+                current_size += os.path.getsize(sanitize(new_filename))
+                stored_files.append(sanitize(new_filename))
+                continue
 
-			if encode:
-				print('Encoding {} to {}'.format(f['path'], sanitize(new_filename)))
-				if extension == 'flac':
-					subprocess.call(['oggenc', '-q3', '--output={}'.format(sanitize(new_filename)), f['path']])
-				else:
-					subprocess.call(['sox', f['path'], sanitize(new_filename)])
-			else:
-				print('Copying {} to {}'.format(f['path'], sanitize(new_filename)))
-				subprocess.call(['cp', '-a', f['path'], sanitize(new_filename)])
+            if encode:
+                print('Encoding {} to {}'.format(f['path'], sanitize(new_filename)))
+                if extension == 'flac':
+                    subprocess.call(['oggenc', '-q3', '--output={}'.format(sanitize(new_filename)), f['path']])
+                else:
+                    subprocess.call(['sox', f['path'], sanitize(new_filename)])
+            else:
+                print('Copying {} to {}'.format(f['path'], sanitize(new_filename)))
+                subprocess.call(['cp', '-a', f['path'], sanitize(new_filename)])
 
-			current_size += os.path.getsize(sanitize(new_filename))
-			stored_files.append(sanitize(new_filename))
+            current_size += os.path.getsize(sanitize(new_filename))
+            stored_files.append(sanitize(new_filename))
 
-	if mode == 'print':
-		pass
-	elif mode == 'artists':
-		ranks = [(key, value[1] / value[0], value[0]) for key, value in artists.items()]
+    if mode == 'print':
+        pass
+    elif mode == 'artists':
+        ranks = [(key, value[1] / value[0], value[0]) for key, value in artists.items()]
 
-		for entry in sorted(ranks, key=lambda x: x[1]):
-			if entry[2] > 5:
-				print('{:50} {:.3f}'.format(entry[0], entry[1]))
+        for entry in sorted(ranks, key=lambda x: x[1]):
+            if entry[2] > 5:
+                print('{:50} {:.3f}'.format(entry[0], entry[1]))
 
-		print()
+        print()
 
-		for entry in sorted(ranks, key=lambda x: x[2], reverse=True):
-			print('{:50} {}'.format(entry[0], entry[2]))
-	else:
-		for root, dirs, files in os.walk(target_directory, topdown=False):
-			if root.endswith('.sync'):
-				continue
+        for entry in sorted(ranks, key=lambda x: x[2], reverse=True):
+            print('{:50} {}'.format(entry[0], entry[2]))
+    else:
+        for root, dirs, files in os.walk(target_directory, topdown=False):
+            if root.endswith('.sync'):
+                continue
 
-			for filename in files:
-				if filename in ['playlist.m3u', '.stfolder']:
-					continue
+            for filename in files:
+                if filename in ['playlist.m3u', '.stfolder']:
+                    continue
 
-				if os.path.join(root, filename) not in stored_files:
-					print('Removing {}'.format(filename))
-					os.remove(os.path.join(root, filename))
+                if os.path.join(root, filename) not in stored_files:
+                    print('Removing {}'.format(filename))
+                    os.remove(os.path.join(root, filename))
 
-			for dir in dirs:
-				try:
-					os.rmdir(os.path.join(root, dir))
-					print('Removing {}'.format(dir))
-				except OSError:
-					pass
+            for dir in dirs:
+                try:
+                    os.rmdir(os.path.join(root, dir))
+                    print('Removing {}'.format(dir))
+                except OSError:
+                    pass
 
-		with open(os.path.join(target_directory, 'playlist.m3u'), 'w') as f:
-			for filename in stored_files:
-				f.write(filename[len(target_directory)+1:])
-				f.write('\n')
+        with open(os.path.join(target_directory, 'playlist.m3u'), 'w') as f:
+            for filename in stored_files:
+                f.write(filename[len(target_directory) + 1:])
+                f.write('\n')
 
-		print()
-		print('Number of Tracks: {}'.format(count))
-		print('Total Length: {}:{:02}:{:02}'.format(int(length / 3600), int(length / 60) % 60, int(length) % 60))
-		print('Total filesize: {}'.format(format_size(current_size)))
-
+        print()
+        print('Number of Tracks: {}'.format(count))
+        print('Total Length: {}:{:02}:{:02}'.format(int(length / 3600), int(length / 60) % 60, int(length) % 60))
+        print('Total filesize: {}'.format(format_size(current_size)))
