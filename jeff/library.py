@@ -60,9 +60,9 @@ class DirectedAcyclicGraph(object):
     #---------------------------------------------------------------------------
 
     def add_edge(self, first_id, second_id, score):
-        if score > 0:
+        if score > 0.5:
             winning_id, losing_id = first_id, second_id
-        elif score < 0:
+        elif score < 0.5:
             winning_id, losing_id = second_id, first_id
         else:
             return
@@ -225,7 +225,7 @@ class Library(object):
         for row in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0'):
             graph.add_vertex(row['id'])
 
-        for pair in self._db.execute('SELECT p.* FROM pairs p, files f1, files f2 WHERE p.first_track_id = f1.track_id AND p.second_track_id = f2.track_id GROUP BY f1.track_id, f2.track_id ORDER BY ABS(score) DESC, p.last_update DESC;').fetchall():
+        for pair in self._db.execute('SELECT p.* FROM pairs p, files f1, files f2 WHERE p.first_track_id = f1.track_id AND p.second_track_id = f2.track_id GROUP BY f1.track_id, f2.track_id ORDER BY score DESC, p.last_update DESC;').fetchall():
             graph.add_edge(pair['first_track_id'], pair['second_track_id'], pair['score'])
 
         return graph if full_graph else graph.topological_sort()
@@ -240,7 +240,8 @@ class Library(object):
                 if len(graph) == 0:
                     return []
                 else:
-                    return random.sample(sorted([Track(self._db, {'id': x}, graph) for x in list(itertools.chain.from_iterable(graph.topological_sort()))]), 2)
+                    tracks = self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY t.id;')
+                    return random.sample(sorted([Track(self._db, x, graph) for x in tracks]), 2)
             except SortError as e:
                 return [e.x, e.y]
 
@@ -258,15 +259,15 @@ class Library(object):
         for losing_track in losing_tracks:
             if track.id < losing_track.id:
                 first_track_id, second_track_id = track.id, losing_track.id
-                score = 1
+                score = 0.1
             else:
                 first_track_id, second_track_id = losing_track.id, track.id
-                score = -1
+                score = 0
 
             try:
-                self._db.execute('INSERT INTO pairs (first_track_id, second_track_id, score, last_update) VALUES (?, ?, ?, ?);', (first_track_id, second_track_id, score, datetime.datetime.now()))
+                self._db.execute('INSERT INTO pairs (first_track_id, second_track_id, score, count, last_update) VALUES (?, ?, ?, ?, ?);', (first_track_id, second_track_id, (0.5 * 0.9) + score, 1, datetime.datetime.now()))
             except sqlite3.Error as e:
-                self._db.execute('UPDATE pairs SET score = score + ?, last_update = ? WHERE first_track_id = ? and second_track_id = ?;', (score, datetime.datetime.now(), first_track_id, second_track_id))
+                self._db.execute('UPDATE pairs SET score = (score * 0.9) + ?, count = count + 1, last_update = ? WHERE first_track_id = ? and second_track_id = ?;', (score, datetime.datetime.now(), first_track_id, second_track_id))
 
         self._db.commit()
 
@@ -312,7 +313,8 @@ class Library(object):
             CREATE TABLE IF NOT EXISTS pairs (
                 first_track_id INTEGER REFERENCES tracks(id) ON UPDATE CASCADE ON DELETE CASCADE,
                 second_track_id INTEGER REFERENCES tracks(id) ON UPDATE CASCADE ON DELETE CASCADE,
-                score INTEGER,
+                score REAL,
+                count INTEGER,
                 last_update TIMESTAMP,
                 PRIMARY KEY(first_track_id, second_track_id)
             );
