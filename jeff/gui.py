@@ -294,6 +294,9 @@ class MainWindow(Gtk.ApplicationWindow):
         self._widget_playing = Gtk.Label()
         vbox.pack_start(self._widget_playing, True, True, 0)
 
+        self._widget_playing_2 = Gtk.Label()
+        vbox.pack_start(self._widget_playing_2, True, True, 0)
+
         box = Gtk.HBox(spacing=3, border_width=3)
         vbox.pack_start(box, True, True, 0)
 
@@ -383,6 +386,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
         if track:
             self._widget_playing.set_label(track.description)
+            self._widget_playing_2.set_label(track.path)
 
             self._player.set_property('uri', track.uri)
 
@@ -395,6 +399,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self._player.get_state(Gst.CLOCK_TIME_NONE)
         else:
             self._widget_playing.set_label('')
+            self._widget_playing_2.set_label('')
 
     def _update_buttons(self, state):
         if state == Gst.State.NULL:
