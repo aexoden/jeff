@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 #-------------------------------------------------------------------------------
 #  Copyright (c) 2015 Jason Lynch <jason@calindora.com>
 #
