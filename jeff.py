@@ -30,5 +30,5 @@ from jeff import gui
 #-------------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    application = gui.Application()
-    application.run(sys.argv)
+	application = gui.Application()
+	application.run(sys.argv)
