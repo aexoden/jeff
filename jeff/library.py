@@ -20,14 +20,16 @@
 #  SOFTWARE.
 #-------------------------------------------------------------------------------
 
+import bisect
 import copy
 import datetime
-import itertools
 import os
 import random
 import sqlite3
+import time
 
 from collections import deque
+from heapq import merge
 
 import mutagen
 
@@ -38,6 +40,34 @@ from gi.repository import GLib
 #-------------------------------------------------------------------------------
 
 EXTENSIONS = ['flac', 'm4a', 'mp3', 'ogg', 'wav', 'wma']
+
+base = time.time()
+
+
+def dprint(msg):
+    print('DEBUG: {:12.3f} {}'.format(time.time() - base, msg))
+
+
+#-------------------------------------------------------------------------------
+# Functions
+#-------------------------------------------------------------------------------
+
+def merge_sort(m):
+    if len(m) <= 1:
+        return m
+
+    middle = len(m) // 2
+    left = m[:middle]
+    right = m[middle:]
+
+    left = merge_sort(left)
+    right = merge_sort(right)
+    return list(merge(left, right))
+
+
+def insertion_sort(m):
+    for i in range(1, len(m)):
+        bisect.insort(m, m.pop(i), 0, i)
 
 
 #-------------------------------------------------------------------------------
@@ -64,13 +94,17 @@ class DirectedAcyclicGraph(object):
         elif score < 0.5:
             winning_id, losing_id = second_id, first_id
         else:
-            return
+            return False
 
         if not self.has_path(winning_id, losing_id):
             if losing_id not in self._graph:
                 self._graph[losing_id] = set()
 
             self._graph[losing_id].add(winning_id)
+
+            return True
+
+        return False
 
     def add_vertex(self, vertex_id):
         if vertex_id not in self._graph:
@@ -164,22 +198,26 @@ class Track(object):
     def uri(self):
         return GLib.filename_to_uri(self._path, None)
 
+    def __hash__(self):
+        return hash(self._id)
+
     def __lt__(self, other):
         if self._graph.has_path(other._id, self._id):
             return True
         elif self._graph.has_path(self._id, other._id):
             return False
         else:
+            dprint('   Sort Error')
             raise SortError(self, other)
 
     def __le__(self, other):
         self._unimplemented(other)
 
     def __eq__(self, other):
-        self._unimplemented(other)
+        return self._id == other._id
 
     def __ne__(self, other):
-        self._unimplemented(other)
+        return not (self == other)
 
     def __gt__(self, other):
         self._unimplemented(other)
@@ -202,6 +240,24 @@ class Library(object):
         self._db.row_factory = sqlite3.Row
 
         self._initialize_tables()
+        self._graph = None
+
+        self._current = set()
+        self._dirty = True
+        self._clean_count = 0
+        self._random_count = 0
+        self._random_list = None
+
+    #---------------------------------------------------------------------------
+    # Properties
+    #---------------------------------------------------------------------------
+
+    @property
+    def graph(self):
+        if not self._graph:
+            self._initialize_graph()
+
+        return self._graph
 
     #---------------------------------------------------------------------------
     # Public Methods
@@ -213,34 +269,79 @@ class Library(object):
         if os.path.exists(path):
             try:
                 self._db.execute('INSERT INTO directories (path) VALUES (?);', (path,))
-            except sqlite3.IntegrityError as e:
+            except sqlite3.IntegrityError:
                 return
 
             self._db.commit()
 
     def get_ranked_tracks(self, full_graph=False):
-        graph = DirectedAcyclicGraph()
-
-        for row in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0'):
-            graph.add_vertex(row['id'])
-
-        for pair in self._db.execute('SELECT p.* FROM pairs p, files f1, files f2 WHERE p.first_track_id = f1.track_id AND p.second_track_id = f2.track_id GROUP BY f1.track_id, f2.track_id ORDER BY score DESC, p.last_update DESC;').fetchall():
-            graph.add_edge(pair['first_track_id'], pair['second_track_id'], pair['score'])
-
-        return graph if full_graph else graph.topological_sort()
+        return self.graph if full_graph else self.graph.topological_sort()
 
     def get_next_tracks(self, true_random=True):
-        if true_random:
+        dprint('get_next_tracks({})'.format(true_random))
+
+        if true_random or (not self._dirty and self._clean_count < 10):
+            #self._clean_count += 1
             return [Track(self._db, row) for row in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY RANDOM() LIMIT 2;').fetchall()]
-        else:
-            try:
+
+            if self._random_count > 10 or not self._random_list:
                 graph = self.get_ranked_tracks(True)
+                ts = graph.topological_sort()
+                self._random_list = []
+                self._random_count = 0
 
                 if len(graph) == 0:
                     return []
-                else:
-                    tracks = self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY t.id;')
-                    return random.sample(sorted([Track(self._db, x, graph) for x in tracks]), 2)
+
+                tracks = {x['id']: x for x in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY t.id;')}
+
+                for group in ts:
+                    for entry in group:
+                        self._random_list.append(Track(self._db, tracks[entry], graph))
+
+            first = random.randint(0, len(self._random_list) - 300)
+            second = first + random.randint(1, 299)
+
+            self._random_count += 1
+
+            print(self._random_count, first, second)
+
+            return [self._random_list[first], self._random_list[second]]
+        else:
+            try:
+                if len(self._current) == 0:
+                    dprint('Generating graph')
+                    graph = self.get_ranked_tracks(True)
+                    dprint('Getting topological sort')
+                    ts = graph.topological_sort()
+
+                    if len(graph) == 0:
+                        return []
+
+                    dprint('Executing query')
+                    tracks = {x['id']: x for x in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY t.id;')}
+
+                    dprint('Building current')
+                    for group in ts:
+                        if len(group) > 1:
+                            for entry in group:
+                                if len(self._current) < 20:
+                                    self._current.add(Track(self._db, tracks[entry], graph))
+
+                    if len(self._current) == 0:
+                        if len(tracks) == 0:
+                            return []
+                        else:
+                            self._dirty = False
+                            self._clean_count = 0
+                            return self.get_next_tracks(True)
+
+                    self._current.update([Track(self._db, x, graph) for x in random.sample(list(tracks.values()), max(5, min(50 - len(self._current), min(100, len(tracks)))))])
+
+                random.sample(sorted(self._current), 2)
+
+                self._current = set()
+                return self.get_next_tracks(False)
             except SortError as e:
                 return [e.x, e.y]
 
@@ -253,6 +354,9 @@ class Library(object):
     def scan_directories(self):
         self._add_new_files()
         self._remove_missing_files()
+        self._dirty = True
+        self._current = set()
+        self._graph = None
 
     def update_playing(self, track, losing_tracks):
         for losing_track in losing_tracks:
@@ -265,14 +369,26 @@ class Library(object):
 
             try:
                 self._db.execute('INSERT INTO pairs (first_track_id, second_track_id, score, count, last_update) VALUES (?, ?, ?, ?, ?);', (first_track_id, second_track_id, (0.5 * 0.9) + score, 1, datetime.datetime.now()))
-            except sqlite3.Error as e:
+                if not self.graph.add_edge(first_track_id, second_track_id, (0.5 * 0.9) + score):
+                    self._graph = None
+            except sqlite3.Error:
                 self._db.execute('UPDATE pairs SET score = (score * 0.9) + ?, count = count + 1, last_update = ? WHERE first_track_id = ? and second_track_id = ?;', (score, datetime.datetime.now(), first_track_id, second_track_id))
 
         self._db.commit()
+        self._dirty = True
 
     #---------------------------------------------------------------------------
     # Private Methods
     #---------------------------------------------------------------------------
+
+    def _initialize_graph(self):
+        self._graph = DirectedAcyclicGraph()
+
+        for row in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0'):
+            self._graph.add_vertex(row['id'])
+
+        for pair in self._db.execute('SELECT p.* FROM pairs p, files f1, files f2 WHERE p.first_track_id = f1.track_id AND p.second_track_id = f2.track_id GROUP BY f1.track_id, f2.track_id ORDER BY score DESC, p.last_update DESC;').fetchall():
+            self._graph.add_edge(pair['first_track_id'], pair['second_track_id'], pair['score'])
 
     def _initialize_tables(self):
         self._db.execute('PRAGMA foreign_keys = ON;')
