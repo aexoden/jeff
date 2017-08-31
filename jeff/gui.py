@@ -46,7 +46,7 @@ from . import library
 class Application(Gtk.Application):
     def __init__(self):
         Gtk.Application.__init__(self, application_id='com.calindora.jeff')
-        Gst.init()
+        Gst.init(None)
 
         GLib.set_application_name('Jeff')
 
