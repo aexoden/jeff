@@ -140,7 +140,7 @@ if __name__ == '__main__':
     count = 0
     length = 0.0
 
-    for rank, true_rank, f in sorter.run(mode in ['print']):
+    for rank, true_rank, f in sorter.run(mode in ['export', 'print']):
         if mode == 'print':
             print('{:6} {}'.format(rank, f['path']))
             continue
@@ -201,6 +201,14 @@ if __name__ == '__main__':
             if os.path.exists(sanitize(new_filename)) and os.path.getmtime(sanitize(new_filename)) >= os.path.getmtime(f['path']):
                 current_size += os.path.getsize(sanitize(new_filename))
                 stored_files.append(sanitize(new_filename))
+
+                new_tags = mutagen.File(sanitize(new_filename), easy=True)
+                matches = re.search('((?P<rank>[0-9]*): )?(?P<title>.*)', new_tags['title'][0])
+                if int(matches.group('rank')) != rank:
+                    print('Updating {} from rank {} to rank {}'.format(new_filename, matches.group('rank'), rank))
+                new_tags['title'] = '{}: {}'.format(rank, matches.group('title'))
+                new_tags.save()
+
                 continue
 
             if encode:
@@ -212,6 +220,10 @@ if __name__ == '__main__':
             else:
                 print('Copying {} to {}'.format(f['path'], sanitize(new_filename)))
                 subprocess.call(['cp', '-a', f['path'], sanitize(new_filename)])
+
+            new_tags = mutagen.File(sanitize(new_filename), easy=True)
+            new_tags['title'] = '{}: {}'.format(rank, new_tags['title'][0])
+            new_tags.save()
 
             current_size += os.path.getsize(sanitize(new_filename))
             stored_files.append(sanitize(new_filename))
