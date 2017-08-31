@@ -192,8 +192,11 @@ class MainWindow(Gtk.ApplicationWindow):
         else:
             self._player.set_state(Gst.State.PLAYING)
 
+        self._player.get_state(Gst.CLOCK_TIME_NONE)
+
     def stop(self):
         self._player.set_state(Gst.State.READY)
+        self._player.get_state(Gst.CLOCK_TIME_NONE)
 
     #---------------------------------------------------------------------------
     # Signal Handlers
@@ -389,6 +392,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._player.seek_simple(Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT, position)
 
             self._player.set_state(state)
+            self._player.get_state(Gst.CLOCK_TIME_NONE)
         else:
             self._widget_playing.set_label('')
 
