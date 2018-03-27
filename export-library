@@ -219,7 +219,7 @@ if __name__ == '__main__':
 				new[sanitize(new_filename)] = (True, f['path'], int(rank))
 
 				if extension == 'flac':
-					subprocess.call(['oggenc', '-q3', '--output={}'.format(sanitize(new_filename)), f['path']])
+					subprocess.call(['opusenc', '--bitrate=128', f['path'], sanitize(new_filename)])
 				else:
 					subprocess.call(['sox', f['path'], sanitize(new_filename)])
 			else:
