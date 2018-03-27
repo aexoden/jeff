@@ -140,6 +140,10 @@ if __name__ == '__main__':
 	count = 0
 	length = 0.0
 
+	updated = {}
+	new = {}
+	deleted = {}
+
 	for rank, true_rank, f in sorter.run(mode in ['export', 'print']):
 		if mode == 'print':
 			print('{:6} {}'.format(rank, f['path']))
@@ -204,25 +208,26 @@ if __name__ == '__main__':
 
 				new_tags = mutagen.File(sanitize(new_filename), easy=True)
 				matches = re.search('((?P<rank>[0-9]*): )?(?P<title>.*)', new_tags['title'][0])
-				if int(matches.group('rank')) != rank:
-					print('Updating {} from rank {} to rank {}'.format(new_filename, matches.group('rank'), rank))
-				new_tags['title'] = '{}: {}'.format(rank, matches.group('title'))
+				if matches.group('rank') != '{:04d}'.format(rank):
+					updated[new_filename] = (int(matches.group('rank')), int(rank))
+				new_tags['title'] = '{:04d}: {}'.format(rank, matches.group('title'))
 				new_tags.save()
 
 				continue
 
 			if encode:
-				print('Encoding {} to {}'.format(f['path'], sanitize(new_filename)))
+				new[sanitize(new_filename)] = (True, f['path'], int(rank))
+
 				if extension == 'flac':
 					subprocess.call(['oggenc', '-q3', '--output={}'.format(sanitize(new_filename)), f['path']])
 				else:
 					subprocess.call(['sox', f['path'], sanitize(new_filename)])
 			else:
-				print('Copying {} to {}'.format(f['path'], sanitize(new_filename)))
+				new[sanitize(new_filename)] = (False, f['path'], int(rank))
 				subprocess.call(['cp', '-a', f['path'], sanitize(new_filename)])
 
 			new_tags = mutagen.File(sanitize(new_filename), easy=True)
-			new_tags['title'] = '{}: {}'.format(rank, new_tags['title'][0])
+			new_tags['title'] = '{:04d}: {}'.format(rank, new_tags['title'][0])
 			new_tags.save()
 
 			current_size += os.path.getsize(sanitize(new_filename))
@@ -251,22 +256,44 @@ if __name__ == '__main__':
 					continue
 
 				if os.path.join(root, filename) not in stored_files:
-					print('Removing {}'.format(filename))
+					deleted[filename] = True
 					os.remove(os.path.join(root, filename))
 
 			for dir in dirs:
 				try:
 					os.rmdir(os.path.join(root, dir))
-					print('Removing {}'.format(dir))
+					deleted[dir] = True
 				except OSError:
 					pass
 
-		with open(os.path.join(target_directory, 'playlist.m3u'), 'w') as f:
-			for filename in stored_files:
-				f.write(filename[len(target_directory) + 1:])
-				f.write('\n')
+		print()
+		print('Summary:')
+		print()
+		print('Changed Files')
+		print('-------------')
+
+		for filename, (old_rank, new_rank) in sorted(updated.items(), key=lambda x: abs(x[1][1] - x[1][0])):
+			old_rank, new_rank = updated[filename]
+			print('{:4d} -> {:4d}: {:50}'.format(old_rank, new_rank, filename))
 
 		print()
+		print('New Files')
+		print('---------')
+
+		for filename in sorted(new.keys()):
+			encoded, original_filename, rank = new[filename]
+			print('{:7}: {:4d} {:50}'.format('Encoded' if encoded else 'Copied', rank, filename))
+
+		print()
+		print('Deleted Files')
+		print('-------------')
+
+		for filename in sorted(deleted.keys()):
+			print(filename)
+
+		print()
+		print('Stats')
+		print('-----')
 		print('Number of Tracks: {}'.format(count))
 		print('Total Length: {}:{:02}:{:02}'.format(int(length / 3600), int(length / 60) % 60, int(length) % 60))
 		print('Total filesize: {}'.format(format_size(current_size)))
