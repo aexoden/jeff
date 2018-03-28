@@ -20,7 +20,6 @@
 #  SOFTWARE.
 #-------------------------------------------------------------------------------
 
-import bisect
 import copy
 import datetime
 import os
@@ -29,7 +28,6 @@ import sqlite3
 import time
 
 from collections import deque
-from heapq import merge
 
 import mutagen
 
@@ -49,28 +47,6 @@ def dprint(msg):
 
 
 #-------------------------------------------------------------------------------
-# Functions
-#-------------------------------------------------------------------------------
-
-def merge_sort(m):
-	if len(m) <= 1:
-		return m
-
-	middle = len(m) // 2
-	left = m[:middle]
-	right = m[middle:]
-
-	left = merge_sort(left)
-	right = merge_sort(right)
-	return list(merge(left, right))
-
-
-def insertion_sort(m):
-	for i in range(1, len(m)):
-		bisect.insort(m, m.pop(i), 0, i)
-
-
-#-------------------------------------------------------------------------------
 # Classes
 #-------------------------------------------------------------------------------
 
@@ -83,6 +59,7 @@ class SortError(BaseException):
 class DirectedAcyclicGraph(object):
 	def __init__(self):
 		self._graph = {}
+		self._cache = {}
 
 	#---------------------------------------------------------------------------
 	# Public Methods
@@ -138,6 +115,9 @@ class DirectedAcyclicGraph(object):
 			print('Cycles: {}'.format(', '.join(repr(x) for x in graph.items())))
 
 	def has_path(self, first_id, second_id):
+		if (first_id, second_id) in self._cache:
+			return self._cache[(first_id, second_id)]
+
 		q = deque()
 		q.append(first_id)
 		discovered = set([first_id])
@@ -147,6 +127,7 @@ class DirectedAcyclicGraph(object):
 
 			for target in self._graph[element]:
 				if target == second_id:
+					self._cache[(first_id, second_id)] = True
 					return True
 
 				if target not in discovered:
@@ -160,10 +141,10 @@ class DirectedAcyclicGraph(object):
 
 
 class Track(object):
-	def __init__(self, db, row, graph=None):
+	def __init__(self, db, row, library):
 		self._db = db
 		self._id = row['id']
-		self._graph = graph
+		self._library = library
 		self._select_file()
 
 	@property
@@ -176,6 +157,13 @@ class Track(object):
 						return '{} - {}'.format(self.tags['artist'][0], self.tags['title'][0])
 				else:
 					return 'Unknown Artist - {}'.format(self.tags['title'][0])
+		else:
+			return os.path.split(self._path)[1]
+
+	@property
+	def title(self):
+		if self.tags and 'title' in self.tags:
+			return self.tags['title'][0]
 		else:
 			return os.path.split(self._path)[1]
 
@@ -202,12 +190,12 @@ class Track(object):
 		return hash(self._id)
 
 	def __lt__(self, other):
-		if self._graph.has_path(other._id, self._id):
+		if self._library.graph.has_path(other._id, self._id):
 			return True
-		elif self._graph.has_path(self._id, other._id):
+		elif self._library.graph.has_path(self._id, other._id):
 			return False
 		else:
-			dprint('   Sort Error')
+			dprint('Sort Error: {} {}'.format(self.title, other.title))
 			raise SortError(self, other)
 
 	def __le__(self, other):
@@ -239,14 +227,11 @@ class Library(object):
 		self._db = sqlite3.connect(path, detect_types=sqlite3.PARSE_DECLTYPES)
 		self._db.row_factory = sqlite3.Row
 
-		self._initialize_tables()
 		self._graph = None
+		self._tracks = None
+		self._current = None
 
-		self._current = set()
-		self._dirty = True
-		self._clean_count = 0
-		self._random_count = 0
-		self._random_list = None
+		self._initialize_db()
 
 	#---------------------------------------------------------------------------
 	# Properties
@@ -255,9 +240,32 @@ class Library(object):
 	@property
 	def graph(self):
 		if not self._graph:
-			self._initialize_graph()
+			self._graph = DirectedAcyclicGraph()
+
+			dprint('--> Adding Vertices')
+			for track in self.tracks:
+				self._graph.add_vertex(track)
+			dprint('<-- Adding Vertices')
+
+			dprint('--> Adding Edges')
+			for pair in self._db.execute('SELECT p.* FROM pairs p, files f1, files f2 WHERE p.first_track_id = f1.track_id AND p.second_track_id = f2.track_id GROUP BY f1.track_id, f2.track_id ORDER BY score DESC, p.last_update DESC;').fetchall():
+				self._graph.add_edge(pair['first_track_id'], pair['second_track_id'], pair['score'])
+			dprint('<-- Adding Edges')
 
 		return self._graph
+
+	@property
+	def tracks(self):
+		if not self._tracks:
+			dprint('--> Initializing tracks')
+			self._tracks = {x['id']: Track(self._db, x, self) for x in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY t.id;')}
+			dprint('<-- Initializing tracks')
+
+		return self._tracks
+
+	@property
+	def ranked_tracks(self):
+		return self.graph.topological_sort()
 
 	#---------------------------------------------------------------------------
 	# Public Methods
@@ -274,77 +282,6 @@ class Library(object):
 
 			self._db.commit()
 
-	def get_ranked_tracks(self, full_graph=False):
-		return self.graph if full_graph else self.graph.topological_sort()
-
-	def get_next_tracks(self, true_random=True):
-		dprint('get_next_tracks({})'.format(true_random))
-
-		if true_random or (not self._dirty and self._clean_count < 10):
-			#self._clean_count += 1
-			return [Track(self._db, row) for row in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY RANDOM() LIMIT 2;').fetchall()]
-
-			if self._random_count > 10 or not self._random_list:
-				graph = self.get_ranked_tracks(True)
-				ts = graph.topological_sort()
-				self._random_list = []
-				self._random_count = 0
-
-				if len(graph) == 0:
-					return []
-
-				tracks = {x['id']: x for x in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY t.id;')}
-
-				for group in ts:
-					for entry in group:
-						self._random_list.append(Track(self._db, tracks[entry], graph))
-
-			first = random.randint(0, len(self._random_list) - 300)
-			second = first + random.randint(1, 299)
-
-			self._random_count += 1
-
-			print(self._random_count, first, second)
-
-			return [self._random_list[first], self._random_list[second]]
-		else:
-			try:
-				if len(self._current) == 0:
-					dprint('Generating graph')
-					graph = self.get_ranked_tracks(True)
-					dprint('Getting topological sort')
-					ts = graph.topological_sort()
-
-					if len(graph) == 0:
-						return []
-
-					dprint('Executing query')
-					tracks = {x['id']: x for x in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY t.id;')}
-
-					dprint('Building current')
-					for group in ts:
-						if len(group) > 1:
-							for entry in group:
-								if len(self._current) < 20:
-									self._current.add(Track(self._db, tracks[entry], graph))
-
-					if len(self._current) == 0:
-						if len(tracks) == 0:
-							return []
-						else:
-							self._dirty = False
-							self._clean_count = 0
-							return self.get_next_tracks(True)
-
-					self._current.update([Track(self._db, x, graph) for x in random.sample(list(tracks.values()), max(5, min(50 - len(self._current), min(100, len(tracks)))))])
-
-				random.sample(sorted(self._current), 2)
-
-				self._current = set()
-				return self.get_next_tracks(False)
-			except SortError as e:
-				return [e.x, e.y]
-
 	def remove_directory(self, path):
 		path = os.path.abspath(path)
 
@@ -352,45 +289,78 @@ class Library(object):
 		self._db.commit()
 
 	def scan_directories(self):
+		dprint('Scanning for new files')
 		self._add_new_files()
+		dprint('Removing missing files from database')
 		self._remove_missing_files()
-		self._dirty = True
-		self._current = set()
-		self._graph = None
+		dprint('Invalidating track cache')
+		self._tracks = None
+
+	def get_next_tracks(self):
+		if not self._current:
+			self._current = list(self.tracks.values())
+
+		try:
+			self._current.sort()
+			self._current = None
+			return random.sample(self._current, 2)
+		except SortError as e:
+			return [e.x, e.y]
 
 	def update_playing(self, track, losing_tracks):
 		for losing_track in losing_tracks:
 			if track.id < losing_track.id:
 				first_track_id, second_track_id = track.id, losing_track.id
-				score = 0.1
+				score = 1.0
 			else:
 				first_track_id, second_track_id = losing_track.id, track.id
-				score = 0
+				score = 0.0
 
 			try:
-				self._db.execute('INSERT INTO pairs (first_track_id, second_track_id, score, count, last_update) VALUES (?, ?, ?, ?, ?);', (first_track_id, second_track_id, (0.5 * 0.9) + score, 1, datetime.datetime.now()))
-				if not self.graph.add_edge(first_track_id, second_track_id, (0.5 * 0.9) + score):
+				self._db.execute('INSERT INTO pairs (first_track_id, second_track_id, score, count, last_update) VALUES (?, ?, ?, ?, ?);', (first_track_id, second_track_id, (0.5 * 0.9) + (score * 0.1), 1, datetime.datetime.now()))
+
+				if not self.graph.add_edge(first_track_id, second_track_id, (0.5 * 0.9) + (score * 0.1)):
 					self._graph = None
 			except sqlite3.Error:
-				self._db.execute('UPDATE pairs SET score = (score * 0.9) + ?, count = count + 1, last_update = ? WHERE first_track_id = ? and second_track_id = ?;', (score, datetime.datetime.now(), first_track_id, second_track_id))
+				self._db.execute('UPDATE pairs SET score = (score * 0.9) + ?, count = count + 1, last_update = ? WHERE first_track_id = ? AND second_track_id = ?;', (score, datetime.datetime.now(), first_track_id, second_track_id))
 
 		self._db.commit()
-		self._dirty = True
 
 	#---------------------------------------------------------------------------
 	# Private Methods
 	#---------------------------------------------------------------------------
 
-	def _initialize_graph(self):
-		self._graph = DirectedAcyclicGraph()
+	def _add_file(self, directory_id, path):
+		tags = mutagen.File(path, easy=True)
 
-		for row in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0'):
-			self._graph.add_vertex(row['id'])
+		if tags and 'musicbrainz_trackid' in tags:
+			mbid = tags['musicbrainz_trackid'][0]
+			result = self._db.execute('SELECT * FROM tracks WHERE mbid = ?;', (mbid,)).fetchone()
 
-		for pair in self._db.execute('SELECT p.* FROM pairs p, files f1, files f2 WHERE p.first_track_id = f1.track_id AND p.second_track_id = f2.track_id GROUP BY f1.track_id, f2.track_id ORDER BY score DESC, p.last_update DESC;').fetchall():
-			self._graph.add_edge(pair['first_track_id'], pair['second_track_id'], pair['score'])
+			if result:
+				track_id = result['id']
+			else:
+				track_id = self._db.execute('INSERT INTO tracks (mbid) VALUES (?);', (mbid,)).lastrowid
+		else:
+			track_id = self._db.execute('INSERT INTO tracks (mbid) VALUES (?);', (None,)).lastrowid
 
-	def _initialize_tables(self):
+		self._db.execute('INSERT INTO files (directory_id, track_id, path, last_update) VALUES (?, ?, ?, ?);', (directory_id, track_id, path, datetime.datetime.utcnow()))
+
+	def _add_new_files(self):
+		for directory in self._db.execute('SELECT * FROM directories;'):
+			for root, dirs, files in os.walk(directory['path']):
+				for path in sorted(files):
+					if path.split('.')[-1].lower() in EXTENSIONS:
+						result = self._db.execute('SELECT * FROM files WHERE path = ?;', (os.path.join(root, path),)).fetchone()
+
+						if not result:
+							self._add_file(directory['id'], os.path.join(root, path))
+						elif result['last_update'] < datetime.datetime.utcfromtimestamp(os.path.getmtime(os.path.join(root, path))):
+							self._update_file(result)
+
+		self._db.commit()
+
+	def _initialize_db(self):
 		self._db.execute('PRAGMA foreign_keys = ON;')
 
 		self._db.execute('''
@@ -438,28 +408,17 @@ class Library(object):
 		self._update_tables()
 		self._db.commit()
 
-	def _update_tables(self):
-		version = self._db.execute('SELECT * FROM config WHERE key = ?;', ('database_version',)).fetchone()
+	def _remove_missing_files(self):
+		for row in self._db.execute('SELECT * FROM files;').fetchall():
+			if not os.path.exists(row['path']):
+				track = self._db.execute('SELECT * FROM tracks WHERE id = ?;', (row['track_id'],)).fetchone()
 
-		if not version:
-			version = 1
-			self._db.execute('INSERT INTO config (key, value) VALUES (?, ?);', ('database_version', version))
+				if track['mbid']:
+					self._db.execute('DELETE FROM files WHERE id = ?;', (row['id'],))
+				else:
+					self._db.execute('DELETE FROM tracks WHERE id = ?;', (track['id'],))
 
-	def _add_file(self, directory_id, path):
-		tags = mutagen.File(path, easy=True)
-
-		if tags and 'musicbrainz_trackid' in tags:
-			mbid = tags['musicbrainz_trackid'][0]
-			result = self._db.execute('SELECT * FROM tracks WHERE mbid = ?;', (mbid,)).fetchone()
-
-			if result:
-				track_id = result['id']
-			else:
-				track_id = self._db.execute('INSERT INTO tracks (mbid) VALUES (?);', (mbid,)).lastrowid
-		else:
-			track_id = self._db.execute('INSERT INTO tracks (mbid) VALUES (?);', (None,)).lastrowid
-
-		self._db.execute('INSERT INTO files (directory_id, track_id, path, last_update) VALUES (?, ?, ?, ?);', (directory_id, track_id, path, datetime.datetime.utcnow()))
+		self._db.commit()
 
 	def _update_file(self, row):
 		track = self._db.execute('SELECT * FROM tracks WHERE id = ?;', (row['track_id'],)).fetchone()
@@ -513,28 +472,9 @@ class Library(object):
 			if delete:
 				self._db.execute('DELETE FROM tracks WHERE id = ?;', (track['id'],))
 
-	def _add_new_files(self):
-		for directory in self._db.execute('SELECT * FROM directories;'):
-			for root, dirs, files in os.walk(directory['path']):
-				for path in sorted(files):
-					if path.split('.')[-1].lower() in EXTENSIONS:
-						result = self._db.execute('SELECT * FROM files WHERE path = ?;', (os.path.join(root, path),)).fetchone()
+	def _update_tables(self):
+		version = self._db.execute('SELECT * FROM config WHERE key = ?;', ('database_version',)).fetchone()
 
-						if not result:
-							self._add_file(directory['id'], os.path.join(root, path))
-						elif result['last_update'] < datetime.datetime.utcfromtimestamp(os.path.getmtime(os.path.join(root, path))):
-							self._update_file(result)
-
-		self._db.commit()
-
-	def _remove_missing_files(self):
-		for row in self._db.execute('SELECT * FROM files;').fetchall():
-			if not os.path.exists(row['path']):
-				track = self._db.execute('SELECT * FROM tracks WHERE id = ?;', (row['track_id'],)).fetchone()
-
-				if track['mbid']:
-					self._db.execute('DELETE FROM files WHERE id = ?;', (row['id'],))
-				else:
-					self._db.execute('DELETE FROM tracks WHERE id = ?;', (track['id'],))
-
-		self._db.commit()
+		if not version:
+			version = 1
+			self._db.execute('INSERT INTO config (key, value) VALUES (?, ?);', ('database_version', version))

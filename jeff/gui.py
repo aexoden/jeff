@@ -283,6 +283,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
 	def _create_widgets(self):
 		main_box = Gtk.VBox()
+		main_box.set_size_request(640, -1)
 		self.add(main_box)
 
 		frame = Gtk.Frame(label='Player')
@@ -414,7 +415,7 @@ class MainWindow(Gtk.ApplicationWindow):
 			self._widget_button_playpause.set_image(self._image_pause)
 
 	def _update_choices(self):
-		self._choices = self._library.get_next_tracks(False)
+		self._choices = self._library.get_next_tracks()
 
 		for index, choice in enumerate(self._choices):
 			self._widget_choices[index]['label'].set_label(choice.description)
@@ -423,7 +424,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
 	def _update_queue(self):
 		if len(self._queue) == 0:
-			tracks = self._library.get_next_tracks(True)
+			tracks = self._library.get_next_tracks()
 
 			if len(tracks) > 0:
 				self._queue.append((tracks[0], []))
