@@ -20,14 +20,12 @@
 #  SOFTWARE.
 #-------------------------------------------------------------------------------
 
-import copy
 import datetime
+import math
 import os
 import random
 import sqlite3
 import time
-
-from collections import deque
 
 import mutagen
 
@@ -39,112 +37,34 @@ from gi.repository import GLib
 
 EXTENSIONS = ['flac', 'm4a', 'mp3', 'ogg', 'wav', 'wma']
 
-base = time.time()
+base_time = time.time()
 
 
-def dprint(msg):
-	print('DEBUG: {:12.3f} {}'.format(time.time() - base, msg))
+def print_debug(function, msg):
+	print('DEBUG: {:>20} {:12.3f} {}'.format(function, time.time() - base_time, msg))
+
+def update_rating(score, rating, deviation, opponent_rating, opponent_deviation):
+	q = math.log(10) / 400
+	g = 1 / math.sqrt(1 + 3 * (q ** 2) * (opponent_deviation ** 2) / (math.pi ** 2))
+	e = 1 / (1 + 10 ** (-1 * g * (rating - opponent_rating) / 400))
+	d = ((q ** 2) * (g ** 2) * (e * (1 - e))) ** -1
+
+	r = rating + (q / (1 / (deviation ** 2) + 1 / d)) * g * (score - e)
+	rd = math.sqrt(((1 / (deviation ** 2)) + (1 / d)) ** -1)
+
+	return (r, rd)
 
 
 #-------------------------------------------------------------------------------
 # Classes
 #-------------------------------------------------------------------------------
 
-class SortError(BaseException):
-	def __init__(self, x, y):
-		self.x = x
-		self.y = y
-
-
-class DirectedAcyclicGraph(object):
-	def __init__(self):
-		self._graph = {}
-		self._cache = {}
-
-	#---------------------------------------------------------------------------
-	# Public Methods
-	#---------------------------------------------------------------------------
-
-	def add_edge(self, first_id, second_id, score):
-		if score > 0.5:
-			winning_id, losing_id = first_id, second_id
-		elif score < 0.5:
-			winning_id, losing_id = second_id, first_id
-		else:
-			return False
-
-		if not self.has_path(winning_id, losing_id):
-			if losing_id not in self._graph:
-				self._graph[losing_id] = set()
-
-			self._graph[losing_id].add(winning_id)
-
-			return True
-
-		return False
-
-	def add_vertex(self, vertex_id):
-		if vertex_id not in self._graph:
-			self._graph[vertex_id] = set()
-
-	def topological_sort(self):
-		graph = copy.deepcopy(self._graph)
-
-		for key in set().union(*graph.values()) - set(graph.keys()):
-			graph[key] = set()
-
-		while True:
-			leaders = set(
-				item
-				for item, dependencies in graph.items()
-				if not dependencies
-			)
-
-			if not leaders:
-				break
-
-			yield leaders
-
-			graph = {
-				item: (dependencies - leaders)
-				for item, dependencies in graph.items()
-				if item not in leaders
-			}
-
-		if graph:
-			print('Cycles: {}'.format(', '.join(repr(x) for x in graph.items())))
-
-	def has_path(self, first_id, second_id):
-		if (first_id, second_id) in self._cache:
-			return self._cache[(first_id, second_id)]
-
-		q = deque()
-		q.append(first_id)
-		discovered = set([first_id])
-
-		while len(q) > 0:
-			element = q.popleft()
-
-			for target in self._graph[element]:
-				if target == second_id:
-					self._cache[(first_id, second_id)] = True
-					return True
-
-				if target not in discovered:
-					q.append(target)
-					discovered.add(target)
-
-		return False
-
-	def __len__(self):
-		return len(self._graph)
-
-
 class Track(object):
-	def __init__(self, db, row, library):
+	def __init__(self, db, row):
 		self._db = db
 		self._id = row['id']
-		self._library = library
+		self._mbid = row['mbid']
+		self._rating = row['rating']
 		self._select_file()
 
 	@property
@@ -152,11 +72,11 @@ class Track(object):
 		if self.tags and 'title' in self.tags:
 				if 'artist' in self.tags:
 					if 'album' in self.tags:
-						return '{} - {} ({})'.format(self.tags['artist'][0], self.tags['title'][0], self.tags['album'][0])
+						return '{} - {} ({}) [{:0.3f}]'.format(self.tags['artist'][0], self.tags['title'][0], self.tags['album'][0], self.rating)
 					else:
-						return '{} - {}'.format(self.tags['artist'][0], self.tags['title'][0])
+						return '{} - {} [{:0.3f}]'.format(self.tags['artist'][0], self.tags['title'][0], self.rating)
 				else:
-					return 'Unknown Artist - {}'.format(self.tags['title'][0])
+					return 'Unknown Artist - {} [{:0.3f}]'.format(self.tags['title'][0], self.rating)
 		else:
 			return os.path.split(self._path)[1]
 
@@ -170,6 +90,14 @@ class Track(object):
 	@property
 	def id(self):
 		return self._id
+
+	@property
+	def mbid(self):
+		return self._mbid
+
+	@property
+	def rating(self):
+		return self._rating
 
 	@property
 	def path(self):
@@ -189,33 +117,6 @@ class Track(object):
 	def __hash__(self):
 		return hash(self._id)
 
-	def __lt__(self, other):
-		if self._library.graph.has_path(other._id, self._id):
-			return True
-		elif self._library.graph.has_path(self._id, other._id):
-			return False
-		else:
-			dprint('Sort Error: {} {}'.format(self.title, other.title))
-			raise SortError(self, other)
-
-	def __le__(self, other):
-		self._unimplemented(other)
-
-	def __eq__(self, other):
-		return self._id == other._id
-
-	def __ne__(self, other):
-		return not (self == other)
-
-	def __gt__(self, other):
-		self._unimplemented(other)
-
-	def __ge__(self, other):
-		self._unimplemented(other)
-
-	def _unimplemented(self, other):
-		raise NotImplemented()
-
 	def _select_file(self):
 		result = self._db.execute('SELECT * FROM files WHERE track_id = ? LIMIT 1;', (self._id,)).fetchone()
 		self._path = result['path']
@@ -227,9 +128,7 @@ class Library(object):
 		self._db = sqlite3.connect(path, detect_types=sqlite3.PARSE_DECLTYPES)
 		self._db.row_factory = sqlite3.Row
 
-		self._graph = None
 		self._tracks = None
-		self._current = None
 
 		self._initialize_db()
 
@@ -238,34 +137,151 @@ class Library(object):
 	#---------------------------------------------------------------------------
 
 	@property
-	def graph(self):
-		if not self._graph:
-			self._graph = DirectedAcyclicGraph()
+	def tracks(self):
+		#if not self._tracks:
+		#self._tracks = {x['id']: Track(self._db, x) for x in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY t.id;')}
 
-			dprint('--> Adding Vertices')
-			for track in self.tracks:
-				self._graph.add_vertex(track)
-			dprint('<-- Adding Vertices')
+		return {x['id']: Track(self._db, x) for x in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY t.id;')}
 
-			dprint('--> Adding Edges')
-			for pair in self._db.execute('SELECT p.* FROM pairs p, files f1, files f2 WHERE p.first_track_id = f1.track_id AND p.second_track_id = f2.track_id GROUP BY f1.track_id, f2.track_id ORDER BY score DESC, p.last_update DESC;').fetchall():
-				self._graph.add_edge(pair['first_track_id'], pair['second_track_id'], pair['score'])
-			dprint('<-- Adding Edges')
+		#return self._tracks
 
-		return self._graph
+	def get_error(self, ratings, scores):
+		error = 0.0
+		count = 1
+
+		for (a, b), score in scores.items():
+			if ratings[a] == 1.0 and ratings[b] == 1.0:
+				predicted = 0.5
+			elif ratings[a] == 0.0 and ratings[b] == 0.0:
+				predicted = 0.5
+			else:
+				predicted = (ratings[a] - (ratings[a] * ratings[b])) / (ratings[a] + ratings[b] - 2 * ratings[a] * ratings[b])
+			error += (score - predicted) ** 2
+			count += 1
+
+		return error ** (1 / count)
 
 	@property
-	def tracks(self):
-		if not self._tracks:
-			dprint('--> Initializing tracks')
-			self._tracks = {x['id']: Track(self._db, x, self) for x in self._db.execute('SELECT * FROM tracks t, files f WHERE t.id = f.track_id GROUP BY t.id HAVING COUNT(t.id) > 0 ORDER BY t.id;')}
-			dprint('<-- Initializing tracks')
+	def ranked_tracks_asm(self):
+		base_data = {}
+		data = {}
+		scores = {x: 0.0 for x in self.tracks}
 
-		return self._tracks
+		for row in self._db.execute('SELECT * FROM comparisons ORDER BY timestamp ASC'):
+			first = row['first_track_id']
+			second = row['second_track_id']
+			score = row['score']
+
+			if first not in data:
+				data[first] = {}
+				base_data[first] = {'for': 0, 'against': 0, 'count': 0}
+
+			if second not in data:
+				data[second] = {}
+				base_data[second] = {'for': 0, 'against': 0, 'count': 0}
+
+			if second not in data[first]:
+				data[first][second] = {'for': 0, 'against': 0, 'count': 0}
+
+			if first not in data[second]:
+				data[second][first] = {'for': 0, 'against': 0, 'count': 0}
+
+			data[first][second]['for'] += score
+			data[second][first]['for'] += 1 - score
+
+			data[first][second]['against'] += 1 - score
+			data[second][first]['for'] += score
+
+			data[first][second]['count'] += 1
+			data[second][first]['count'] += 1
+
+			base_data[first]['for'] += score
+			base_data[first]['against'] += 1 - score
+			base_data[first]['count'] += 1
+			base_data[second]['for'] += 1 - score
+			base_data[second]['against'] += score
+			base_data[second]['count'] += 1
+
+		asm_data = {}
+
+		for row in self._db.execute('SELECT * FROM comparisons ORDER BY timestamp ASC'):
+			first = row['first_track_id']
+			second = row['second_track_id']
+			score = row['score']
+
+			if first not in asm_data:
+				asm_data[first] = {'for': 0, 'against': 0}
+
+			if second not in asm_data:
+				asm_data[second] = {'for': 0, 'against': 0}
+
+			if base_data[first]['count'] == data[first][second]['count']:
+				continue
+
+			if base_data[second]['count'] == data[second][first]['count']:
+				continue
+
+			first_against = (base_data[first]['against'] - data[first][second]['against']) / (base_data[first]['count'] - data[first][second]['count'])
+			second_against = (base_data[second]['against'] - data[second][first]['against']) / (base_data[second]['count'] - data[second][first]['count'])
+
+			asm_data[first]['for'] += score - second_against
+			asm_data[second]['for'] += (1 - score) - first_against
+
+		for id in asm_data:
+			scores[id] = asm_data[id]['for'] / base_data[id]['count']
+
+		tracks = self.tracks
+
+		return [(x[1], tracks[x[0]]) for x in sorted(scores.items(), key=lambda x: x[1], reverse=True)]
+
+	@property
+	def ranked_tracks_best_fit(self):
+		scores = {}
+		ratings = {}
+
+		for row in self._db.execute('SELECT * FROM comparisons ORDER BY timestamp ASC'):
+			key = row['first_track_id'], row['second_track_id']
+
+			if key not in scores:
+				scores[key] = 0.5 * 0.9 + row['score'] * 0.1
+				ratings[row['first_track_id']] = 0.5
+				ratings[row['second_track_id']] = 0.5
+			else:
+				scores[key] = scores[key] * 0.9 + row['score'] * 0.1
+
+		tracks = self.tracks
+
+		error = self.get_error(ratings, scores)
+		old_error = None
+
+		while error > 0.1 and (not old_error or old_error != error):
+			old_error = error
+			for track in ratings:
+				base = 0.0
+
+				for divisor in [10, 100, 1000]:
+					best = (None, None)
+					second = (None, None)
+
+					for i in range(11):
+						ratings[track] = base + i / divisor
+						new_error = self.get_error(ratings, scores)
+
+						if not best[0] or new_error < best[0]:
+							second = best
+							best = (new_error, i)
+						elif not second[0] or new_error < second[0]:
+							second = (new_error, i)
+
+					base += min(best[1], second[1]) / divisor
+
+				ratings[track] = base
+
+		return [(x[1], tracks[x[0]]) for x in sorted(ratings.items(), key=lambda x: x[1], reverse=True)]
 
 	@property
 	def ranked_tracks(self):
-		return self.graph.topological_sort()
+		return list(sorted(self.tracks.values(), key=lambda x: x.rating, reverse=True))
 
 	#---------------------------------------------------------------------------
 	# Public Methods
@@ -289,40 +305,49 @@ class Library(object):
 		self._db.commit()
 
 	def scan_directories(self):
-		dprint('Scanning for new files')
 		self._add_new_files()
-		dprint('Removing missing files from database')
 		self._remove_missing_files()
-		dprint('Invalidating track cache')
 		self._tracks = None
 
 	def get_next_tracks(self):
-		if not self._current:
-			self._current = list(self.tracks.values())
+		# TODO: Add support for other selection algorithms. True random at least.
+		count = self._db.execute('SELECT COUNT(*) AS count FROM tracks').fetchone()['count']
 
-		try:
-			self._current.sort()
-			self._current = None
-			return random.sample(self._current, 2)
-		except SortError as e:
-			return [e.x, e.y]
+		if count >= 2:
+			first = Track(self._db, self._db.execute('SELECT * FROM tracks WHERE comparisons = (SELECT MIN(comparisons) FROM tracks) ORDER BY RANDOM() LIMIT 1;').fetchone())
+			second = Track(self._db, self._db.execute('SELECT * FROM tracks WHERE id != ? ORDER BY RANDOM() LIMIT 1;', (first.id,)).fetchone())
+
+			return [first, second]
+		else:
+			return []
 
 	def update_playing(self, track, losing_tracks):
 		for losing_track in losing_tracks:
 			if track.id < losing_track.id:
 				first_track_id, second_track_id = track.id, losing_track.id
-				score = 1.0
+				first_track_score = 1.0
+				second_track_score = 0.0
 			else:
 				first_track_id, second_track_id = losing_track.id, track.id
-				score = 0.0
+				first_track_score = 0.0
+				second_track_score = 1.0
 
-			try:
-				self._db.execute('INSERT INTO pairs (first_track_id, second_track_id, score, count, last_update) VALUES (?, ?, ?, ?, ?);', (first_track_id, second_track_id, (0.5 * 0.9) + (score * 0.1), 1, datetime.datetime.now()))
+			self._db.execute('INSERT INTO comparisons (first_track_id, second_track_id, score, timestamp) VALUES (?, ?, ?, ?);', (first_track_id, second_track_id, first_track_score, datetime.datetime.now()))
 
-				if not self.graph.add_edge(first_track_id, second_track_id, (0.5 * 0.9) + (score * 0.1)):
-					self._graph = None
-			except sqlite3.Error:
-				self._db.execute('UPDATE pairs SET score = (score * 0.9) + ?, count = count + 1, last_update = ? WHERE first_track_id = ? AND second_track_id = ?;', (score, datetime.datetime.now(), first_track_id, second_track_id))
+			first_track = self._db.execute('SELECT * FROM tracks WHERE id = ?;', (first_track_id,)).fetchone()
+			second_track = self._db.execute('SELECT * FROM tracks WHERE id = ?;', (second_track_id,)).fetchone()
+
+			first_since = (datetime.datetime.now() - first_track['last_update']).days if first_track['last_update'] else 364
+			second_since = (datetime.datetime.now() - second_track['last_update']).days if second_track['last_update'] else 364
+
+			first_deviation = min(math.sqrt(first_track['deviation'] ** 2 + (18.15682598 ** 2) * first_since), 350)
+			second_deviation = min(math.sqrt(second_track['deviation'] ** 2 + (18.15682598 ** 2) * second_since), 350)
+
+			first_new_rating, first_new_deviation = update_rating(first_track_score, first_track['rating'], first_deviation, second_track['rating'], second_deviation)
+			second_new_rating, second_new_deviation = update_rating(second_track_score, second_track['rating'], second_deviation, first_track['rating'], first_deviation)
+
+			self._db.execute('UPDATE tracks SET comparisons = comparisons + 1, rating = ?, deviation = ?, last_update = ? WHERE id = ?', (first_new_rating, first_new_deviation, datetime.datetime.now(), first_track['id']))
+			self._db.execute('UPDATE tracks SET comparisons = comparisons + 1, rating = ?, deviation = ?, last_update = ? WHERE id = ?', (second_new_rating, second_new_deviation, datetime.datetime.now(), second_track['id']))
 
 		self._db.commit()
 
@@ -390,18 +415,21 @@ class Library(object):
 		self._db.execute('''
 			CREATE TABLE IF NOT EXISTS tracks (
 				id INTEGER PRIMARY KEY,
-				mbid TEXT UNIQUE
+				mbid TEXT UNIQUE,
+				comparisons INTEGER DEFAULT 0,
+				rating REAL DEFAULT 1500,
+				deviation REAL DEFAULT 350,
+				last_update TIMESTAMP
 			);
 		''')
 
 		self._db.execute('''
-			CREATE TABLE IF NOT EXISTS pairs (
+			CREATE TABLE IF NOT EXISTS comparisons (
+				id INTEGER PRIMARY KEY,
 				first_track_id INTEGER REFERENCES tracks(id) ON UPDATE CASCADE ON DELETE CASCADE,
 				second_track_id INTEGER REFERENCES tracks(id) ON UPDATE CASCADE ON DELETE CASCADE,
 				score REAL,
-				count INTEGER,
-				last_update TIMESTAMP,
-				PRIMARY KEY(first_track_id, second_track_id)
+				timestamp TIMESTAMP
 			);
 		''')
 
@@ -430,51 +458,43 @@ class Library(object):
 			mbid = None
 
 		if mbid != track['mbid']:
-			# The mbid has changed since the last time we read the file, so we
-			# need to update the database. First, we need to determine whether
-			# or not the new mbid already exists, and determine our new track
-			# id.
-			result = self._db.execute('SELECT * FROM tracks WHERE mbid = ?;', (mbid,)).fetchone() if mbid else None
+			print_debug('_update_file', 'Musicbrainz ID for {} has changed'.format(row['path']))
 
-			if result:
-				new_track_id = result['id']
+			# Determine if the current track has files other than this one.
+			files_left = self._db.execute('SELECT COUNT(*) AS count FROM files WHERE track_id = ? AND id != ?;', (track['id'], row['id'])).fetchone()['count'] > 0
+
+			# Determine if the new MBID already exists in the database.
+			new_track = self._db.execute('SELECT * FROM tracks WHERE mbid = ?;', (mbid,)).fetchone() if mbid else None
+
+			if not files_left and not new_track:
+				print_debug('_update_file', 'Updating MBID on existing track')
+				self._db.execute('UPDATE tracks SET mbid = ? WHERE id = ?', (mbid, track['id']))
+			elif not files_left and new_track:
+				if track['comparisons'] > new_track['comparisons']:
+					print_debug('_update_file', 'Deleting new track and transferring its files to old track.')
+					self._db.execute('UPDATE files SET track_id = ? WHERE track_id = ?;', (track['id'], new_track['id']))
+					self._db.execute('DELETE FROM tracks WHERE id = ?;', (new_track['id'],))
+					self._db.execute('UPDATE tracks SET mbid = ? WHERE id = ?', (mbid, track['id']))
+				else:
+					print_debug('_update_file', 'Deleting old track and its data. New track has better data.')
+					self._db.execute('DELETE FROM tracks WHERE id = ?;', (track['id'],))
 			else:
-				new_track_id = self._db.execute('INSERT INTO tracks (mbid) VALUES (?);', (mbid,)).lastrowid
+				print_debug('_update_file', 'Files remain on old track. New track will start with fresh data.')
 
-			delete = False
-
-			# Now, there are three possibilities:
-			#  1) The mbid was previously NULL, but now has a defined value. In
-			#     this case, we want to merge our statistics onto the new track.
-			#  2) The mbid was previously defined, but is now NULL. This seems
-			#     like a regression in the tags, but it could happen. In this
-			#     case, it's probably best to just create a new track and be
-			#     done with it.
-			#  3) The mbid was previously defined, but has changed. The most
-			#     likely case here is that recordings were merged on
-			#     Musicbrainz, so it's probably best to move the data, as long
-			#     as the old track has no remaining files.
-			if mbid:
-				result = self._db.execute('SELECT COUNT(*) AS count FROM files WHERE track_id = ? AND id != ?;', (track['id'], row['id'])).fetchone()
-
-				if result['count'] == 0:
-					# Update any data that uses the old track id to use the new
-					# track id.
-					# TODO: Pairs need to be merged, not merely modified.
-					self._db.execute('UPDATE pairs SET first_track_id = ? WHERE first_track_id = ?;', (new_track_id, row['track_id']))
-					self._db.execute('UPDATE pairs SET second_track_id = ? WHERE second_track_id = ?;', (new_track_id, row['track_id']))
-
-					# Flag the previous track for deletion.
-					delete = True
-
-			self._db.execute('UPDATE files SET track_id = ? WHERE id = ?;', (new_track_id, row['id']))
-
-			if delete:
-				self._db.execute('DELETE FROM tracks WHERE id = ?;', (track['id'],))
+			self._db.commit()
 
 	def _update_tables(self):
 		version = self._db.execute('SELECT * FROM config WHERE key = ?;', ('database_version',)).fetchone()
 
 		if not version:
-			version = 1
+			version = 2
 			self._db.execute('INSERT INTO config (key, value) VALUES (?, ?);', ('database_version', version))
+
+		if version == 1:
+			version = 2
+			self._db.execute('ALTER TABLE tracks ADD comparisons INTEGER DEFAULT 0;')
+			self._db.execute('ALTER TABLE tracks ADD rating REAL DEFAULT 1500;')
+			self._db.execute('ALTER TABLE tracks ADD deviation REAL DEFAULT 350;')
+			self._db.execute('ALTER TABLE tracks ADD last_update TIMESTAMP;')
+			self._db.execute('DROP TABLE pairs;')
+			self._db.execute('UPDATE config SET value = ? WHERE key = ?;', (version, 'database_version'))
