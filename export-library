@@ -63,9 +63,9 @@ class JeffSort(object):
 				elif tokens[0] == 'SKIP':
 					concat_reverse[tokens[1]] = None
 
-		if mode2 == 'asm':
+		if submode == 'asm':
 			ranked_tracks = self._library.ranked_tracks_asm
-		elif mode2 == 'bestfit':
+		elif submode == 'bestfit':
 			ranked_tracks = self._library.ranked_tracks_best_fit
 		else:
 			ranked_tracks = self._library.ranked_tracks
@@ -74,7 +74,7 @@ class JeffSort(object):
 			track_files = []
 			title = None
 
-			if mode2 in ['asm', 'bestfit']:
+			if submode in ['asm', 'bestfit']:
 				print('{:8.3f} {}'.format(track[0], track[1].path))
 				continue
 
@@ -178,6 +178,8 @@ if __name__ == '__main__':
 	if len(tokens) > 1:
 		mode = tokens[0]
 		mode2 = tokens[1]
+	else:
+		mode2 = ''
 
 	current_size = 0
 	stored_files = []
