@@ -67,15 +67,19 @@ class JeffSort(object):
 			ranked_tracks = self._library.ranked_tracks_asm
 		elif submode == 'bestfit':
 			ranked_tracks = self._library.ranked_tracks_best_fit
+		elif submode == 'elo':
+			ranked_tracks = self._library.ranked_tracks_elo
+		elif submode == 'bt':
+			ranked_tracks = self._library.ranked_tracks_bt
 		else:
-			ranked_tracks = self._library.ranked_tracks
+			ranked_tracks = self._library.ranked_tracks_bt
 
-		for index, track in enumerate(ranked_tracks):
+		for index, (rating, track) in enumerate(ranked_tracks):
 			track_files = []
 			title = None
 
-			if submode in ['asm', 'bestfit']:
-				print('{:8.3f} {}'.format(track[0], track[1].path))
+			if submode in ['asm', 'bestfit', 'elo', 'bt']:
+				print('{:8.3f} {}'.format(rating, track.path))
 				continue
 
 			if track.mbid in concat_reverse:
@@ -184,8 +188,11 @@ if __name__ == '__main__':
 	current_size = 0
 	stored_files = []
 	artists = {}
+	albums = {}
 	count = 0
 	length = 0.0
+
+	lowest_rating = 1000000
 
 	updated = {}
 	new = {}
@@ -199,6 +206,27 @@ if __name__ == '__main__':
 				for entry in flist[1:]:
 					print('{:6} + {}'.format('', entry['path']))
 
+			continue
+
+		if mode == 'albums':
+			for f in flist:
+				tags = mutagen.File(f['path'], easy=True)
+
+				if not tags:
+					continue
+
+				if not tags['album']:
+					continue
+
+				album = tags['album'][0]
+
+				try:
+					if album not in albums:
+						albums[album] = (0, 0)
+
+					albums[album] = (albums[album][0] + 1, albums[album][1] + f['rating'])
+				except KeyError as e:
+					pass
 			continue
 
 		if mode == 'artists':
@@ -231,6 +259,9 @@ if __name__ == '__main__':
 
 		if current_size > max_size:
 			break
+
+		if flist[0]['rating'] < lowest_rating:
+			lowest_rating = flist[0]['rating']
 
 		if len(flist) > 1:
 			# Join the files to a temporary file first.
@@ -295,6 +326,9 @@ if __name__ == '__main__':
 				new_tags['title'] = '{:04d}: {}'.format(rank, matches.group('title'))
 				new_tags.save()
 
+				if os.path.exists('joined.flac'):
+					os.remove('joined.flac')
+
 				continue
 
 			if encode:
@@ -309,7 +343,9 @@ if __name__ == '__main__':
 				subprocess.call(['cp', '-a', source_path, sanitize(new_filename)])
 
 				if extension == 'mp3':
-					subprocess.call(['mp3gain', '-r', '-k', '-d', '-5', sanitize(new_filename)])
+#					subprocess.call(['mp3gain', '-r', '-k', '-d', '-5', sanitize(new_filename)])
+#					apparently some files get messed up with -k
+					subprocess.call(['mp3gain', '-r', '-d', '-5', sanitize(new_filename)])
 
 
 			new_tags = mutagen.File(sanitize(new_filename), easy=True)
@@ -324,8 +360,13 @@ if __name__ == '__main__':
 
 	if mode == 'print':
 		pass
-	elif mode == 'artists':
-		ranks = [(key, value[1] / value[0], value[0]) for key, value in artists.items()]
+	elif mode == 'artists' or mode == 'albums':
+		if mode == 'artists':
+			source = artists
+		else:
+			source = albums
+
+		ranks = [(key, value[1] / value[0], value[0]) for key, value in source.items()]
 
 		for entry in sorted(ranks, key=lambda x: x[1]):
 			if entry[2] > 5:
@@ -386,3 +427,4 @@ if __name__ == '__main__':
 		print('Number of Tracks: {}'.format(count))
 		print('Total Length: {}:{:02}:{:02}'.format(int(length / 3600), int(length / 60) % 60, int(length) % 60))
 		print('Total filesize: {}'.format(format_size(current_size)))
+		print('Lowest rating: {}'.format(lowest_rating))

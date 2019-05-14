@@ -25,6 +25,7 @@ import math
 import os
 import random
 import sqlite3
+import threading
 import time
 
 import mutagen
@@ -106,6 +107,7 @@ class Track(object):
 	@property
 	def tags(self):
 		if not self._tags:
+			print(self._id, self._path)
 			self._tags = mutagen.File(self._path, easy=True)
 
 		return self._tags
@@ -119,7 +121,12 @@ class Track(object):
 
 	def _select_file(self):
 		result = self._db.execute('SELECT * FROM files WHERE track_id = ? LIMIT 1;', (self._id,)).fetchone()
-		self._path = result['path']
+
+		if result:
+			self._path = result['path']
+		else:
+			self._path = None
+
 		self._tags = None
 
 
@@ -129,6 +136,7 @@ class Library(object):
 		self._db.row_factory = sqlite3.Row
 
 		self._tracks = None
+		self._scanning = False
 
 		self._initialize_db()
 
@@ -235,6 +243,123 @@ class Library(object):
 		return [(x[1], tracks[x[0]]) for x in sorted(scores.items(), key=lambda x: x[1], reverse=True)]
 
 	@property
+	def ranked_tracks_bt(self):
+
+		import choix
+
+		tracks = self.tracks
+		data = []
+
+		for row in self._db.execute('SELECT * FROM comparisons ORDER BY timestamp ASC'):
+			if row['score'] > 0:
+				data.append((row['first_track_id'], row['second_track_id']))
+			else:
+				data.append((row['second_track_id'], row['first_track_id']))
+
+		params = choix.ilsr_pairwise(max(tracks.keys()) + 1, data, alpha=0.0001)
+
+		return [(params[x[0]], x[1]) for x in sorted(tracks.items(), key=lambda x: params[x[0]], reverse=True)]
+
+		print(params)
+		import sys
+		sys.exit(1)
+
+		if False:
+			tracks = self.tracks
+
+			import numpy as np
+
+			comparisons = [row for row in self._db.execute('SELECT * FROM comparisons ORDER BY timestamp ASC')]
+			N = len(comparisons)
+			print(1)
+			M = max(self.tracks.keys()) + 1
+			print(2)
+			X = np.zeros((N, M + 1))
+			print(3)
+			Y = np.zeros((N, 1))
+			print(4)
+
+			for index, comparison in enumerate(comparisons):
+				X[index][comparison['first_track_id']] = 1
+				X[index][comparison['second_track_id']] = -1
+				Y[index] = comparison['score']
+				X[index][M] = 1
+
+			print(5)
+
+			X = np.matrix(X)
+			print(6)
+			Xt = np.matrix.transpose(X)
+			print(7)
+			XXt = np.dot(X, Xt)
+			print(8)
+			Y = np.matrix(Y)
+			print(9)
+
+			rankings = np.matrix(np.random.rand(M + 1, 1))
+			tol = 1.0
+
+			while tol > 0.0001:
+				print(tol)
+				p = np.exp(np.dot(X, rankings)) / (1 + np.exp(np.dot(X, rankings)))
+				gradient = np.matrix(np.zeros((1, M + 1)))
+				hessian = 0.0
+
+				for i in range(N):
+					gradient += np.multiply(X[i], Y[i]) - np.multiply(X[i], p[i])
+					hessian += XXt.item((i, i)) * p[i] * (1 - p[i])
+
+				oldrankings = np.matrix.transpose(rankings)
+				rankings = oldrankings + (1 / hessian) * gradient
+
+				tol = np.dot(rankings - oldrankings, np.matrix.transpose(rankings - oldrankings))
+
+				rankings = np.matrix.transpose(rankings)
+
+			return [(float(rankings[x[0]]), x[1]) for x in sorted(tracks.items(), key=lambda x: rankings[x[0]], reverse=True)]
+
+	@property
+	def ranked_tracks_elo(self):
+		tracks = self.tracks
+		ratings = {x: 1500.0 for x in tracks.keys()}
+
+		iterations = 0
+		delta = None
+
+		while iterations < 10000 and (delta is None or delta > 0.01):
+			expected = {x: 0 for x in tracks.keys()}
+			actual = {x: 0 for x in tracks.keys()}
+
+			for row in self._db.execute('SELECT * FROM comparisons ORDER BY timestamp ASC'):
+				track_a, track_b = row['first_track_id'], row['second_track_id']
+
+				q_a = pow(10, ratings[track_a] / 400)
+				q_b = pow(10, ratings[track_b] / 400)
+
+				e_a = q_a / (q_a + q_b)
+				e_b = q_b / (q_a + q_b)
+
+				expected[track_a] += e_a
+				expected[track_b] += e_b
+
+				actual[track_a] += row['score']
+				actual[track_b] += 1 - row['score']
+
+			delta = 0
+
+			for id in tracks.keys():
+				adjustment = 32 * (actual[id] - expected[id])
+				ratings[id] += adjustment
+
+				delta += abs(adjustment)
+
+			iterations += 1
+
+			print(iterations, delta)
+
+		return [(x[1], tracks[x[0]]) for x in sorted(ratings.items(), key=lambda x: x[1], reverse=True)]
+
+	@property
 	def ranked_tracks_best_fit(self):
 		scores = {}
 		ratings = {}
@@ -281,7 +406,7 @@ class Library(object):
 
 	@property
 	def ranked_tracks(self):
-		return list(sorted(self.tracks.values(), key=lambda x: x.rating, reverse=True))
+		return [(x.rating, x) for x in sorted(self.tracks.values(), key=lambda x: x.rating, reverse=True)]
 
 	#---------------------------------------------------------------------------
 	# Public Methods
@@ -305,17 +430,36 @@ class Library(object):
 		self._db.commit()
 
 	def scan_directories(self):
+		self._scan_directories()
+#		if not self._scanning:
+#			self._scanning = True
+#			thread = threading.Thread(target=self._scan_directories)
+#			thread.daemon = True
+#			thread.start()
+
+	def _scan_directories(self):
+		print_debug('_scan_directories', 'Adding new files')
 		self._add_new_files()
+		print_debug('_scan_directories', 'Removing missing files')
 		self._remove_missing_files()
+		print_debug('_scan_directories', 'Done')
 		self._tracks = None
+		self._scanning = False
 
 	def get_next_tracks(self):
 		# TODO: Add support for other selection algorithms. True random at least.
+		#       Fix this to only pull tracks that have files.
 		count = self._db.execute('SELECT COUNT(*) AS count FROM tracks').fetchone()['count']
 
 		if count >= 2:
 			first = Track(self._db, self._db.execute('SELECT * FROM tracks WHERE comparisons = (SELECT MIN(comparisons) FROM tracks) ORDER BY RANDOM() LIMIT 1;').fetchone())
-			second = Track(self._db, self._db.execute('SELECT * FROM tracks WHERE id != ? ORDER BY RANDOM() LIMIT 1;', (first.id,)).fetchone())
+
+			secondsrc = self._db.execute('SELECT * FROM tracks WHERE id != ? AND ABS(rating - ?) < 250 ORDER BY RANDOM() LIMIT 1;', (first.id, first.rating)).fetchone()
+
+			if not secondsrc:
+				secondsrc = self._db.execute('SELECT * FROM tracks WHERE id != ? ORDER BY RANDOM() LIMIT 1;', (first.id,)).fetchone()
+
+			second = Track(self._db, secondsrc)
 
 			return [first, second]
 		else:
@@ -381,6 +525,10 @@ class Library(object):
 						if not result:
 							self._add_file(directory['id'], os.path.join(root, path))
 						elif result['last_update'] < datetime.datetime.utcfromtimestamp(os.path.getmtime(os.path.join(root, path))):
+							print_debug('_add_new_files', 'Updating file')
+							print(result['path'])
+							print(result['last_update'])
+							print(datetime.datetime.utcfromtimestamp(os.path.getmtime(os.path.join(root, path))))
 							self._update_file(result)
 
 		self._db.commit()
@@ -478,10 +626,16 @@ class Library(object):
 				else:
 					print_debug('_update_file', 'Deleting old track and its data. New track has better data.')
 					self._db.execute('DELETE FROM tracks WHERE id = ?;', (track['id'],))
+			elif not new_track:
+				print_debug('_update_file', 'Creating new track, but files remain on old track. New track will start with fresh data.')
+				track_id = self._db.execute('INSERT INTO tracks (mbid) VALUES (?);', (mbid,)).lastrowid
+				self._db.execute('UPDATE files SET track_id = ? WHERE id = ?;', (track_id, row['id']))
 			else:
-				print_debug('_update_file', 'Files remain on old track. New track will start with fresh data.')
+				print_debug('_update_file', 'New track exists, but files remain on old track.')
+				self._db.execute('UPDATE files SET track_id = ? WHERE id = ?;', (new_track['id'], row['id']))
 
-			self._db.commit()
+		self._db.execute('UPDATE files SET last_update = ? WHERE id = ?;', (datetime.datetime.utcnow(), row['id']))
+		self._db.commit()
 
 	def _update_tables(self):
 		version = self._db.execute('SELECT * FROM config WHERE key = ?;', ('database_version',)).fetchone()
