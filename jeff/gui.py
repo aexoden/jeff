@@ -29,8 +29,8 @@ from typing import Any
 
 import gi
 
-gi.require_version('Gtk', '3.0')
-gi.require_version('Gst', '1.0')
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gst", "1.0")
 
 from gi.repository import Gio
 from gi.repository import GLib
@@ -45,15 +45,16 @@ from . import library
 # Classes
 #
 
+
 class Application(Gtk.Application):
     def __init__(self):
-        Gtk.Application.__init__(self, application_id='com.calindora.jeff')
+        Gtk.Application.__init__(self, application_id="com.calindora.jeff")
         Gst.init(None)
 
-        GLib.set_application_name('Jeff')
+        GLib.set_application_name("Jeff")
 
-        self.connect('activate', self.on_activate)
-        self.connect('startup', self.on_startup)
+        self.connect("activate", self.on_activate)
+        self.connect("startup", self.on_startup)
 
         self._window = None
 
@@ -69,7 +70,7 @@ class Application(Gtk.Application):
         self.add_window(self._window)
 
         builder = Gtk.Builder()
-        builder.add_from_string('''
+        builder.add_from_string("""
             <interface>
                 <menu id="app-menu">
                     <section>
@@ -91,13 +92,13 @@ class Application(Gtk.Application):
                     </section>
                 </menu>
             </interface>
-        ''')
+        """)
 
-        self.set_app_menu(builder.get_object('app-menu'))
+        self.set_app_menu(builder.get_object("app-menu"))
 
-        self._add_action('add_directory', self.on_action_add_directory)
-        self._add_action('scan_directories', self.on_action_scan_directories)
-        self._add_action('quit', self.on_action_quit)
+        self._add_action("add_directory", self.on_action_add_directory)
+        self._add_action("scan_directories", self.on_action_scan_directories)
+        self._add_action("quit", self.on_action_quit)
 
     def on_action_add_directory(self, action, user_data):
         self._window.add_directory()
@@ -108,13 +109,13 @@ class Application(Gtk.Application):
     def on_action_quit(self, action, user_data):
         self._window.destroy()
 
-    #---------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Private Methods
-    #---------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def _add_action(self, name, handler):
         action = Gio.SimpleAction.new(name, None)
-        action.connect('activate', handler)
+        action.connect("activate", handler)
         self.add_action(action)
 
 
@@ -126,7 +127,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._create_widgets()
         self._initialize_player()
 
-        self._library = library.Library(os.path.join(xdg.BaseDirectory.save_config_path('jeff'), 'library.sqlite'))
+        self._library = library.Library(os.path.join(xdg.BaseDirectory.save_config_path("jeff"), "library.sqlite"))
         self._library.scan_directories()
 
         self._current_Track = None
@@ -141,12 +142,17 @@ class MainWindow(Gtk.ApplicationWindow):
 
         GObject.timeout_add(500, self.on_timeout_update)
 
-    #---------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Public Methods
-    #---------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def add_directory(self):
-        dialog = Gtk.FileChooserDialog('Add Directory to Library', self, Gtk.FileChooserAction.SELECT_FOLDER, (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK))
+        dialog = Gtk.FileChooserDialog(
+            "Add Directory to Library",
+            self,
+            Gtk.FileChooserAction.SELECT_FOLDER,
+            (Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OPEN, Gtk.ResponseType.OK),
+        )
         dialog.set_default_response(Gtk.ResponseType.OK)
 
         response = dialog.run()
@@ -155,7 +161,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self._library.add_directory(dialog.get_filename())
             self._library.scan_directories()
 
-            if not self._player.get_property('current-uri'):
+            if not self._player.get_property("current-uri"):
                 if self.skip_forward():
                     self._widget_button_playpause.set_sensitive(True)
                     self._widget_button_skip_forward.set_sensitive(True)
@@ -204,9 +210,9 @@ class MainWindow(Gtk.ApplicationWindow):
         self._player.set_state(Gst.State.READY)
         self._player.get_state(Gst.CLOCK_TIME_NONE)
 
-    #---------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Signal Handlers
-    #---------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def on_button_choices_preview_toggled(self, widget, index):
         if self._preview_state:
@@ -214,7 +220,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 if not widget.get_active():
                     self._preview_end()
             else:
-                other_widget = self._widget_choices[self._preview_state[0]]['preview']
+                other_widget = self._widget_choices[self._preview_state[0]]["preview"]
                 other_widget.handler_block_by_func(self.on_button_choices_preview_toggled)
                 other_widget.set_active(False)
                 other_widget.handler_unblock_by_func(self.on_button_choices_preview_toggled)
@@ -276,31 +282,31 @@ class MainWindow(Gtk.ApplicationWindow):
         self._update_seek_bar()
         return True
 
-    #---------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     # Private Methods
-    #---------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
 
     def _create_button(self, image, clicked_handler):
         button = Gtk.Button()
         button.set_image(image)
-        button.connect('clicked', clicked_handler)
+        button.connect("clicked", clicked_handler)
         button.set_sensitive(False)
 
         return button
 
     def _create_images(self):
-        self._image_play = Gtk.Image.new_from_icon_name('media-playback-start', Gtk.IconSize.BUTTON)
-        self._image_pause = Gtk.Image.new_from_icon_name('media-playback-pause', Gtk.IconSize.BUTTON)
-        self._image_stop = Gtk.Image.new_from_icon_name('media-playback-stop', Gtk.IconSize.BUTTON)
-        self._image_skip_backward = Gtk.Image.new_from_icon_name('media-skip-backward', Gtk.IconSize.BUTTON)
-        self._image_skip_forward = Gtk.Image.new_from_icon_name('media-skip-forward', Gtk.IconSize.BUTTON)
+        self._image_play = Gtk.Image.new_from_icon_name("media-playback-start", Gtk.IconSize.BUTTON)
+        self._image_pause = Gtk.Image.new_from_icon_name("media-playback-pause", Gtk.IconSize.BUTTON)
+        self._image_stop = Gtk.Image.new_from_icon_name("media-playback-stop", Gtk.IconSize.BUTTON)
+        self._image_skip_backward = Gtk.Image.new_from_icon_name("media-skip-backward", Gtk.IconSize.BUTTON)
+        self._image_skip_forward = Gtk.Image.new_from_icon_name("media-skip-forward", Gtk.IconSize.BUTTON)
 
     def _create_widgets(self):
         main_box = Gtk.VBox()
         main_box.set_size_request(640, -1)
         self.add(main_box)
 
-        frame = Gtk.Frame(label='Player')
+        frame = Gtk.Frame(label="Player")
         main_box.pack_start(frame, True, True, 0)
 
         vbox = Gtk.VBox(spacing=3, border_width=3)
@@ -317,19 +323,23 @@ class MainWindow(Gtk.ApplicationWindow):
 
         self._widget_button_playpause = self._create_button(self._image_play, self.on_button_playpause_clicked)
         self._widget_button_stop = self._create_button(self._image_stop, self.on_button_stop_clicked)
-        self._widget_button_skip_backward = self._create_button(self._image_skip_backward, self.on_button_skip_backward_clicked)
-        self._widget_button_skip_forward = self._create_button(self._image_skip_forward, self.on_button_skip_forward_clicked)
+        self._widget_button_skip_backward = self._create_button(
+            self._image_skip_backward, self.on_button_skip_backward_clicked
+        )
+        self._widget_button_skip_forward = self._create_button(
+            self._image_skip_forward, self.on_button_skip_forward_clicked
+        )
 
         self._widget_seek_bar = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0.0, 1.0, 0.01)
         self._widget_seek_bar.set_sensitive(False)
         self._widget_seek_bar.set_draw_value(False)
         self._widget_seek_bar.set_size_request(200, -1)
-        self._widget_seek_bar.connect('value-changed', self.on_seek_bar_value_changed)
-        self._widget_seek_bar.connect('button-press-event', self.on_seek_bar_button_pressed)
-        self._widget_seek_bar.connect('button-release-event', self.on_seek_bar_button_released)
+        self._widget_seek_bar.connect("value-changed", self.on_seek_bar_value_changed)
+        self._widget_seek_bar.connect("button-press-event", self.on_seek_bar_button_pressed)
+        self._widget_seek_bar.connect("button-release-event", self.on_seek_bar_button_released)
 
-        self._widget_label_time_current = Gtk.Label('-')
-        self._widget_label_time_maximum = Gtk.Label('-')
+        self._widget_label_time_current = Gtk.Label("-")
+        self._widget_label_time_maximum = Gtk.Label("-")
 
         box.pack_start(self._widget_button_playpause, True, True, 0)
         box.pack_start(self._widget_button_stop, True, True, 0)
@@ -337,10 +347,10 @@ class MainWindow(Gtk.ApplicationWindow):
         box.pack_start(self._widget_button_skip_forward, True, True, 0)
         box.pack_start(self._widget_seek_bar, True, True, 0)
         box.pack_start(self._widget_label_time_current, False, False, 0)
-        box.pack_start(Gtk.Label(' / '), False, False, 0)
+        box.pack_start(Gtk.Label(" / "), False, False, 0)
         box.pack_start(self._widget_label_time_maximum, False, False, 0)
 
-        frame = Gtk.Frame(label='Choices')
+        frame = Gtk.Frame(label="Choices")
         main_box.pack_start(frame, True, True, 0)
 
         box = Gtk.VBox(spacing=3, border_width=5)
@@ -354,19 +364,19 @@ class MainWindow(Gtk.ApplicationWindow):
             inner_box = Gtk.HBox(spacing=3)
             box.pack_start(inner_box, True, True, 0)
 
-            widgets['preview'] = Gtk.ToggleButton('Preview')
-            widgets['preview'].set_sensitive(False)
-            widgets['preview'].connect('toggled', self.on_button_choices_preview_toggled, i)
+            widgets["preview"] = Gtk.ToggleButton("Preview")
+            widgets["preview"].set_sensitive(False)
+            widgets["preview"].connect("toggled", self.on_button_choices_preview_toggled, i)
 
-            widgets['enqueue'] = Gtk.Button('Enqueue')
-            widgets['enqueue'].set_sensitive(False)
-            widgets['enqueue'].connect('clicked', self.on_button_choices_enqueue_clicked, i)
+            widgets["enqueue"] = Gtk.Button("Enqueue")
+            widgets["enqueue"].set_sensitive(False)
+            widgets["enqueue"].connect("clicked", self.on_button_choices_enqueue_clicked, i)
 
-            widgets['label'] = Gtk.Label()
+            widgets["label"] = Gtk.Label()
 
-            inner_box.pack_start(widgets['preview'], False, False, 0)
-            inner_box.pack_start(widgets['enqueue'], False, False, 0)
-            inner_box.pack_start(widgets['label'], False, False, 0)
+            inner_box.pack_start(widgets["preview"], False, False, 0)
+            inner_box.pack_start(widgets["enqueue"], False, False, 0)
+            inner_box.pack_start(widgets["label"], False, False, 0)
 
             self._widget_choices.append(widgets)
 
@@ -375,26 +385,26 @@ class MainWindow(Gtk.ApplicationWindow):
         minutes = int(seconds / 60)
 
         if minutes > 60:
-            return '{:d}{:02d}:{:02d}'.format(int(minutes / 60), minutes % 60, seconds % 60)
+            return "{:d}{:02d}:{:02d}".format(int(minutes / 60), minutes % 60, seconds % 60)
         else:
-            return '{:d}:{:02d}'.format(minutes, seconds % 60)
+            return "{:d}:{:02d}".format(minutes, seconds % 60)
 
     def _initialize_player(self):
-        self._player = Gst.ElementFactory.make('playbin', 'player')
+        self._player = Gst.ElementFactory.make("playbin", "player")
 
         bus = self._player.get_bus()
         bus.add_signal_watch()
-        bus.connect('message::eos', self.on_player_eos)
-        bus.connect('message::state-changed', self.on_player_state_changed)
+        bus.connect("message::eos", self.on_player_eos)
+        bus.connect("message::state-changed", self.on_player_state_changed)
 
     def _preview_end(self):
         self._switch_track(self._preview_state[1], self._preview_state[2], self._preview_state[3])
         self._preview_state = None
 
         for widgets in self._widget_choices:
-            widgets['preview'].handler_block_by_func(self.on_button_choices_preview_toggled)
-            widgets['preview'].set_active(False)
-            widgets['preview'].handler_unblock_by_func(self.on_button_choices_preview_toggled)
+            widgets["preview"].handler_block_by_func(self.on_button_choices_preview_toggled)
+            widgets["preview"].set_active(False)
+            widgets["preview"].handler_unblock_by_func(self.on_button_choices_preview_toggled)
 
     def _switch_track(self, track, state=Gst.State.PLAYING, position=None):
         self._player.set_state(Gst.State.NULL)
@@ -405,7 +415,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self._widget_playing.set_label(track.description)
             self._widget_playing_2.set_label(track.path)
 
-            self._player.set_property('uri', track.uri)
+            self._player.set_property("uri", track.uri)
 
             if position:
                 self._player.set_state(Gst.State.PAUSED)
@@ -415,8 +425,8 @@ class MainWindow(Gtk.ApplicationWindow):
             self._player.set_state(state)
             self._player.get_state(Gst.CLOCK_TIME_NONE)
         else:
-            self._widget_playing.set_label('')
-            self._widget_playing_2.set_label('')
+            self._widget_playing.set_label("")
+            self._widget_playing_2.set_label("")
 
     def _update_buttons(self, state):
         if state == Gst.State.NULL:
@@ -434,9 +444,9 @@ class MainWindow(Gtk.ApplicationWindow):
         self._choices = self._library.get_next_tracks()
 
         for index, choice in enumerate(self._choices):
-            self._widget_choices[index]['label'].set_label(choice.description)
-            self._widget_choices[index]['preview'].set_sensitive(True)
-            self._widget_choices[index]['enqueue'].set_sensitive(True)
+            self._widget_choices[index]["label"].set_label(choice.description)
+            self._widget_choices[index]["preview"].set_sensitive(True)
+            self._widget_choices[index]["enqueue"].set_sensitive(True)
 
     def _update_queue(self):
         if len(self._queue) == 0:
@@ -460,6 +470,7 @@ class MainWindow(Gtk.ApplicationWindow):
             else:
                 self._widget_seek_bar.set_value(0.0)
 
+
 def run():
-	application = Application()
-	application.run(sys.argv)
+    application = Application()
+    application.run(sys.argv)

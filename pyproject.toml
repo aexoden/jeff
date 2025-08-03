@@ -33,6 +33,7 @@ dev = [
 ]
 
 [tool.ruff]
+exclude = ["jeff/__version__.py"]
 line-length = 120
 
 [tool.ruff.format]
