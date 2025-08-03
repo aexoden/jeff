@@ -21,6 +21,7 @@
 #
 
 import os
+import sys
 import xdg.BaseDirectory
 
 from collections import deque
@@ -458,3 +459,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 self._widget_seek_bar.handler_unblock_by_func(self.on_seek_bar_value_changed)
             else:
                 self._widget_seek_bar.set_value(0.0)
+
+def run():
+	application = Application()
+	application.run(sys.argv)

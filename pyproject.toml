@@ -1,0 +1,52 @@
+[project]
+name = "jeff"
+dynamic = ["version"]
+description = "JEFF Emits Fabulous Frequencies"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Jason Lynch", email = "jason@aexoden.com" }]
+requires-python = ">=3.13"
+dependencies = [
+    "choix>=0.3.6",
+    "mutagen>=1.47.0",
+    "pygobject>=3.52.3",
+    "pyxdg>=0.28",
+    "requests>=2.32.4",
+]
+
+[project.scripts]
+jeff = "jeff.gui:run"
+
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "jeff/__version__.py"
+
+[tool.hatch.version]
+source = "vcs"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.12.7",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.format]
+line-ending = "lf"
+
+[tool.ruff.lint]
+preview = true
+select = ["ALL"]
+
+[tool.ruff.lint.flake8-copyright]
+notice-rgx = "(?i)SPDX-FileCopyrightText: \\d{4}"
+
+[tool.ruff.lint.isort]
+lines-between-types = 1
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
