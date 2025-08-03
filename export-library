@@ -72,15 +72,13 @@ class JeffSort(object):
 		elif submode == 'bt':
 			ranked_tracks = self._library.ranked_tracks_bt
 		else:
-			ranked_tracks = self._library.ranked_tracks_bt
+			ranked_tracks = self._library.ranked_tracks
 
 		for index, (rating, track) in enumerate(ranked_tracks):
 			track_files = []
 			title = None
 
-			if submode in ['asm', 'bestfit', 'elo', 'bt']:
-				print('{:8.3f} {}'.format(rating, track.path))
-				continue
+			print('{:8.3f} {}'.format(rating, track.path))
 
 			if track.mbid in concat_reverse:
 				if concat_reverse[track.mbid] is not None:
@@ -108,7 +106,12 @@ class JeffSort(object):
 	#---------------------------------------------------------------------------
 
 	def _get_file_score(self, f):
-		return os.path.getsize(f['path'])
+		if f['path'].endswith('flac'):
+			multiplier = 10
+		else:
+			multiplier = 1
+
+		return os.path.getsize(f['path']) * f['priority'] * multiplier
 
 #-------------------------------------------------------------------------------
 # Functions
@@ -210,17 +213,17 @@ if __name__ == '__main__':
 
 		if mode == 'albums':
 			for f in flist:
-				tags = mutagen.File(f['path'], easy=True)
-
-				if not tags:
-					continue
-
-				if not tags['album']:
-					continue
-
-				album = tags['album'][0]
-
 				try:
+					tags = mutagen.File(f['path'], easy=True)
+
+					if not tags:
+						continue
+
+					if not tags['album']:
+						continue
+
+					album = tags['album'][0]
+
 					if album not in albums:
 						albums[album] = (0, 0)
 
@@ -308,20 +311,28 @@ if __name__ == '__main__':
 
 			if extension == 'flac' or 'layer II,' in file_data:
 				encode = True
-				new_filename = os.path.join(target_directory, directory, '{}.ogg'.format(filename))
+				new_filename = os.path.join(target_directory, directory, '{}.m4a'.format(filename))
 			else:
 				new_filename = os.path.join(target_directory, directory, '{}.{}'.format(filename, extension))
 
 			if not os.path.isdir(os.path.join(target_directory, sanitize(directory))):
 				os.makedirs(os.path.join(target_directory, sanitize(directory)))
 
+			#print('Source Path', source_path)
+			#print('New Filename', sanitize(new_filename))
+			#print('Source mtime', os.path.getmtime(source_path))
+			#print('New mtime', os.path.getmtime(sanitize(source_path)))
+			#print('New exists', os.path.exists(sanitize(new_filename)))
+
 			if os.path.exists(sanitize(new_filename)) and os.path.getmtime(sanitize(new_filename)) >= os.path.getmtime(source_path):
+				print(f'Updating rank of {new_filename} to {rank}')
 				current_size += os.path.getsize(sanitize(new_filename))
 				stored_files.append(sanitize(new_filename))
 
 				new_tags = mutagen.File(sanitize(new_filename), easy=True)
 				matches = re.search('((?P<rank>[0-9]*): )?(?P<title>.*)', new_tags['title'][0])
 				if matches.group('rank') != '{:04d}'.format(rank):
+#					print(new_filename, new_tags['title'][0], matches.group('rank'), rank)
 					updated[new_filename] = (int(matches.group('rank')), int(rank))
 				new_tags['title'] = '{:04d}: {}'.format(rank, matches.group('title'))
 				new_tags.save()
@@ -331,21 +342,26 @@ if __name__ == '__main__':
 
 				continue
 
+			if os.path.exists(sanitize(new_filename)):
+				os.remove(sanitize(new_filename))
+
 			if encode:
 				new[sanitize(new_filename)] = (True, target_path, int(rank))
 
-				if extension == 'flac':
-					subprocess.call(['opusenc', '--bitrate=128', source_path, sanitize(new_filename)])
+				if True: #extension == 'flac':
+					#subprocess.call(['opusenc', '--bitrate=128', source_path, sanitize(new_filename)])
+#					subprocess.call(['ffmpeg', '-i', source_path, '-c:v', 'copy', '-c:a', 'libmp3lame', '-q:a', '0', sanitize(new_filename)])
+					subprocess.call(['ffmpeg', '-i', source_path, '-c:v', 'copy', '-c:a', 'libfdk_aac', '-vbr', '5', sanitize(new_filename)])
 				else:
 					subprocess.call(['sox', source_path, sanitize(new_filename)])
 			else:
 				new[sanitize(new_filename)] = (False, target_path, int(rank))
 				subprocess.call(['cp', '-a', source_path, sanitize(new_filename)])
 
-				if extension == 'mp3':
+#				if extension == 'mp3':
 #					subprocess.call(['mp3gain', '-r', '-k', '-d', '-5', sanitize(new_filename)])
 #					apparently some files get messed up with -k
-					subprocess.call(['mp3gain', '-r', '-d', '-5', sanitize(new_filename)])
+#					subprocess.call(['mp3gain', '-r', '-d', '-5', sanitize(new_filename)])
 
 
 			new_tags = mutagen.File(sanitize(new_filename), easy=True)
@@ -370,12 +386,12 @@ if __name__ == '__main__':
 
 		for entry in sorted(ranks, key=lambda x: x[1]):
 			if entry[2] > 5:
-				print('{:50} {:.3f}'.format(entry[0], entry[1]))
+				print('{:80} {:.3f} {}'.format(entry[0], entry[1], entry[2]))
 
 		print()
 
 		for entry in sorted(ranks, key=lambda x: x[2], reverse=True):
-			print('{:50} {}'.format(entry[0], entry[2]))
+			print('{:80} {}'.format(entry[0], entry[2]))
 	else:
 		for root, dirs, files in os.walk(target_directory, topdown=False):
 			if root.endswith('.sync'):
@@ -402,9 +418,9 @@ if __name__ == '__main__':
 		print('Changed Files')
 		print('-------------')
 
-		for filename, (old_rank, new_rank) in sorted(updated.items(), key=lambda x: abs(x[1][1] - x[1][0])):
+		for filename, (old_rank, new_rank) in sorted(updated.items(), key=lambda x: x[1][1]):
 			old_rank, new_rank = updated[filename]
-			print('{:4d} -> {:4d}: {:50}'.format(old_rank, new_rank, filename))
+			print('{:5d}  {:4d} -> {:4d}: {:50}'.format(abs(old_rank - new_rank), old_rank, new_rank, filename))
 
 		print()
 		print('New Files')
