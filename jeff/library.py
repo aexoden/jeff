@@ -1,25 +1,7 @@
-# -------------------------------------------------------------------------------
-#  Copyright (c) 2015 Jason Lynch <jason@calindora.com>
+# SPDX-FileCopyrightText: 2015-present Jason Lynch <jason@aexoden.com>
 #
-#  Permission is hereby granted, free of charge, to any person obtaining a copy
-#  of this software and associated documentation files (the "Software"), to deal
-#  in the Software without restriction, including without limitation the rights
-#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-#  copies of the Software, and to permit persons to whom the Software is
-#  furnished to do so, subject to the following conditions:
-#
-#  The above copyright notice and this permission notice shall be included in
-#  all copies or substantial portions of the Software.
-#
-#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-#  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-#  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-#  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-#  SOFTWARE.
-# -------------------------------------------------------------------------------
-# type: ignore
+# SPDX-License-Identifier: MIT
+"""Library for managing music tracks and their metadata."""
 
 import datetime
 import math
@@ -27,10 +9,12 @@ import os
 import sqlite3
 import time
 
+from pathlib import Path
+
 import choix
-import mutagen
 
 from gi.repository import GLib
+from tinytag import TinyTag
 
 #
 # Constants
@@ -41,11 +25,15 @@ EXTENSIONS = ["flac", "m4a", "mp3", "ogg", "wav", "wma"]
 base_time = time.time()
 
 
-def print_debug(function, msg):
-    print("DEBUG: {:>20} {:12.3f} {}".format(function, time.time() - base_time, msg))
+def print_debug(function: str, msg: str) -> None:
+    """Print debug messages with a timestamp."""
+    print(f"DEBUG: {function:>20} {time.time() - base_time:12.3f} {msg}")
 
 
-def update_rating(score, rating, deviation, opponent_rating, opponent_deviation):
+def update_rating(
+    score: float, rating: float, deviation: float, opponent_rating: float, opponent_deviation: float
+) -> tuple[float, float]:
+    """Update the rating and deviation based on the Elo rating system."""
     q = math.log(10) / 400
     g = 1 / math.sqrt(1 + 3 * (q**2) * (opponent_deviation**2) / (math.pi**2))
     e = 1 / (1 + 10 ** (-1 * g * (rating - opponent_rating) / 400))
@@ -62,8 +50,11 @@ def update_rating(score, rating, deviation, opponent_rating, opponent_deviation)
 #
 
 
-class Track(object):
-    def __init__(self, db, row):
+class Track:
+    """Class representing a music track in the library."""
+
+    def __init__(self, db: sqlite3.Connection, row: sqlite3.Row) -> None:
+        """Initialize a Track instance with database connection and row data."""
         self._db = db
         self._id = row["id"]
         self._mbid = row["mbid"]
@@ -72,85 +63,101 @@ class Track(object):
         self._select_file()
 
     @property
-    def description(self):
-        if self.tags and "title" in self.tags:
-            if "artist" in self.tags:
-                if "album" in self.tags:
-                    return "{} - {} ({}) [{}/{:0.3f}]".format(
-                        self.tags["artist"][0],
-                        self.tags["title"][0],
-                        self.tags["album"][0],
-                        self.comparisons,
-                        self.rating,
-                    )
-                else:
-                    return "{} - {} [{}/{:0.3f}]".format(
-                        self.tags["artist"][0], self.tags["title"][0], self.comparisons, self.rating
-                    )
-            else:
-                return "Unknown Artist - {} [{}/{:0.3f}]".format(self.tags["title"][0], self.comparisons, self.rating)
-        else:
-            return os.path.split(self._path)[1]
+    def description(self) -> str:
+        """Return a description of the track, including artist, title, album, comparisons, and rating."""
+        if self.tags and self.tags.title:
+            if self.tags.artist:
+                if self.tags.album:
+                    return f"{self.tags.artist} - {self.tags.title} ({self.tags.album}) [{self.comparisons}/{self.rating:0.3f}]"
+                return f"{self.tags.artist} - {self.tags.title} [{self.comparisons}/{self.rating:0.3f}]"
+            return f"Unknown Artist - {self.tags.title} [{self.comparisons}/{self.rating:0.3f}]"
+
+        if self._path:
+            return self._path.stem
+
+        return "Unknown Track"
 
     @property
-    def title(self):
-        if self.tags and "title" in self.tags:
-            return self.tags["title"][0]
-        else:
-            return os.path.split(self._path)[1]
+    def title(self) -> str:
+        """Return the title of the track."""
+        if self.tags and self.tags.title:
+            return self.tags.title
+
+        if self._path:
+            return self._path.stem
+
+        return "Unknown Title"
 
     @property
-    def id(self):
+    def id(self) -> int:
+        """Return the unique identifier for the track."""
         return self._id
 
     @property
-    def mbid(self):
+    def mbid(self) -> str:
+        """Return the MusicBrainz ID for the track, if available."""
         return self._mbid
 
     @property
-    def rating(self):
+    def rating(self) -> float:
+        """Return the rating of the track."""
         result = self._db.execute("SELECT rating FROM tracks where id = ?;", (self._id,)).fetchone()
         return result["rating"]
 
     @property
-    def comparisons(self):
+    def comparisons(self) -> int:
+        """Return the number of comparisons made for the track."""
         result = self._db.execute("SELECT comparisons FROM tracks where id = ?;", (self._id,)).fetchone()
         return result["comparisons"]
 
     @property
-    def path(self):
+    def path(self) -> Path | None:
+        """Return the file path of the track."""
         return self._path
 
     @property
-    def tags(self):
+    def tags(self) -> TinyTag:
         if not self._tags:
             print(self._id, self._path)
-            self._tags = mutagen.File(self._path, easy=True)
+            self._tags = TinyTag.get(str(self._path))
 
         return self._tags
 
     @property
-    def uri(self):
-        return GLib.filename_to_uri(self._path, None)
+    def uri(self) -> str:
+        """Return the URI of the track file."""
+        if not self._path:
+            return ""
 
-    def __hash__(self):
+        return GLib.filename_to_uri(str(self._path), None)
+
+    def __hash__(self) -> int:
+        """Return a hash of the track based on its ID.
+
+        Returns:
+            int: Hash value of the track ID.
+
+        """
         return hash(self._id)
 
-    def _select_file(self):
+    def _select_file(self) -> None:
         result = self._db.execute(
             "SELECT * FROM files WHERE track_id = ? ORDER BY priority DESC LIMIT 1;", (self._id,)
         ).fetchone()
 
         if result:
-            self._path = result["path"]
+            self._path = Path(result["path"])
         else:
             self._path = None
 
         self._tags = None
 
 
-class Library(object):
-    def __init__(self, path):
+class Library:
+    """Class representing a music library, managing tracks and their metadata."""
+
+    def __init__(self, path: Path):
+        """Initialize the Library with a database connection."""
         self._db = sqlite3.connect(path, detect_types=sqlite3.PARSE_DECLTYPES)
         self._db.row_factory = sqlite3.Row
 
@@ -164,7 +171,8 @@ class Library(object):
     #
 
     @property
-    def tracks(self):
+    def tracks(self) -> dict[int, Track]:
+        """Return a dictionary of all tracks in the library."""
         return {
             x["id"]: Track(self._db, x)
             for x in self._db.execute(
@@ -172,14 +180,13 @@ class Library(object):
             )
         }
 
-    def get_error(self, ratings, scores):
+    def get_error(self, ratings: dict[int, float], scores: dict[tuple[int, int], float]) -> float:
+        """Calculate the error between predicted and actual scores."""
         error = 0.0
         count = 1
 
         for (a, b), score in scores.items():
-            if ratings[a] == 1.0 and ratings[b] == 1.0:
-                predicted = 0.5
-            elif ratings[a] == 0.0 and ratings[b] == 0.0:
+            if (ratings[a] == 1.0 and ratings[b] == 1.0) or (ratings[a] == 0.0 and ratings[b] == 0.0):
                 predicted = 0.5
             else:
                 predicted = (ratings[a] - (ratings[a] * ratings[b])) / (
@@ -192,6 +199,7 @@ class Library(object):
 
     @property
     def ranked_tracks_asm(self):
+        """Return tracks ranked by the ASM algorithm."""
         base_data = {}
         data = {}
         scores = {x: 0.0 for x in self.tracks}
@@ -375,10 +383,11 @@ class Library(object):
     # Public Methods
     #
 
-    def add_directory(self, path):
-        path = os.path.abspath(path)
+    def add_directory(self, path: Path) -> None:
+        """Add a directory to the library for scanning."""
+        path = path.resolve()
 
-        if os.path.exists(path):
+        if path.exists() and path.is_dir():
             try:
                 self._db.execute("INSERT INTO directories (path) VALUES (?);", (path,))
             except sqlite3.IntegrityError:
@@ -386,16 +395,18 @@ class Library(object):
 
             self._db.commit()
 
-    def remove_directory(self, path):
-        path = os.path.abspath(path)
+    def remove_directory(self, path: Path) -> None:
+        """Remove a directory from the library."""
+        path = path.resolve()
 
         self._db.execute("DELETE FROM directories WHERE path = ?;", (path,))
         self._db.commit()
 
-    def scan_directories(self):
+    def scan_directories(self) -> None:
+        """Scan all directories in the library for new or updated files."""
         self._scan_directories()
 
-    def _scan_directories(self):
+    def _scan_directories(self) -> None:
         print_debug("_scan_directories", "Adding new files")
         self._add_new_files()
         print_debug("_scan_directories", "Removing missing files")
@@ -404,20 +415,40 @@ class Library(object):
         self._tracks = None
         self._scanning = False
 
-    def get_rating_range(self):
-        result = self._db.execute("SELECT MAX(rating) AS max, MIN(rating) AS min FROM tracks;").fetchone()
-        return (result["min"], result["max"])
+    def get_rating_range(self) -> tuple[float, float]:
+        """Get the minimum and maximum ratings of tracks in the library.
 
-    def get_track(self, path):
-        track = Track(
+        Returns:
+            tuple: A tuple containing the minimum and maximum ratings.
+
+        """
+        result = self._db.execute("SELECT MAX(rating) AS max, MIN(rating) AS min FROM tracks;").fetchone()
+        return (float(result["min"]), float(result["max"]))
+
+    def get_track(self, path: Path) -> Track | None:
+        """Get a Track object by its file path.
+
+        Args:
+            path (Path): The file path of the track.
+
+        Returns:
+            Track: The Track object corresponding to the file path, or None if not found.
+
+        """
+        return Track(
             self._db,
             self._db.execute(
                 "SELECT t.* FROM tracks t, files f WHERE t.id = f.track_id AND f.path = ?;", (path,)
             ).fetchone(),
         )
-        return track
 
-    def get_next_tracks(self):
+    def get_next_tracks(self) -> list[Track]:
+        """Get the next two tracks for comparison.
+
+        Returns:
+            list: A list containing two Track objects for comparison, or an empty list if not enough tracks are available.
+
+        """
         # TODO: Add support for other selection algorithms. True random at least.
         #       Fix this to only pull tracks that have files.
         count = self._db.execute("SELECT COUNT(*) AS count FROM tracks").fetchone()["count"]
@@ -443,10 +474,17 @@ class Library(object):
             second = Track(self._db, secondsrc)
 
             return [first, second]
-        else:
-            return []
 
-    def update_playing(self, track, losing_tracks):
+        return []
+
+    def update_playing(self, track: Track, losing_tracks: list[Track]) -> None:
+        """Update the ratings of the track and its losing tracks based on the comparison.
+
+        Args:
+            track (Track): The track that won the comparison.
+            losing_tracks (list[Track]): A list of tracks that lost the comparison.
+
+        """
         for losing_track in losing_tracks:
             if track.id < losing_track.id:
                 first_track_id, second_track_id = track.id, losing_track.id
@@ -459,17 +497,21 @@ class Library(object):
 
             self._db.execute(
                 "INSERT INTO comparisons (first_track_id, second_track_id, score, timestamp) VALUES (?, ?, ?, ?);",
-                (first_track_id, second_track_id, first_track_score, datetime.datetime.now()),
+                (first_track_id, second_track_id, first_track_score, datetime.datetime.now(tz=datetime.UTC)),
             )
 
             first_track = self._db.execute("SELECT * FROM tracks WHERE id = ?;", (first_track_id,)).fetchone()
             second_track = self._db.execute("SELECT * FROM tracks WHERE id = ?;", (second_track_id,)).fetchone()
 
             first_since = (
-                (datetime.datetime.now() - first_track["last_update"]).days if first_track["last_update"] else 364
+                (datetime.datetime.now(tz=datetime.UTC) - first_track["last_update"].astimezone(datetime.UTC)).days
+                if first_track["last_update"]
+                else 364
             )
             second_since = (
-                (datetime.datetime.now() - second_track["last_update"]).days if second_track["last_update"] else 364
+                (datetime.datetime.now(tz=datetime.UTC) - second_track["last_update"].astimezone(datetime.UTC)).days
+                if second_track["last_update"]
+                else 364
             )
 
             first_deviation = min(math.sqrt(first_track["deviation"] ** 2 + (18.15682598**2) * first_since), 350)
@@ -484,11 +526,11 @@ class Library(object):
 
             self._db.execute(
                 "UPDATE tracks SET comparisons = comparisons + 1, rating = ?, deviation = ?, last_update = ? WHERE id = ?",
-                (first_new_rating, first_new_deviation, datetime.datetime.now(), first_track["id"]),
+                (first_new_rating, first_new_deviation, datetime.datetime.now(tz=datetime.UTC), first_track["id"]),
             )
             self._db.execute(
                 "UPDATE tracks SET comparisons = comparisons + 1, rating = ?, deviation = ?, last_update = ? WHERE id = ?",
-                (second_new_rating, second_new_deviation, datetime.datetime.now(), second_track["id"]),
+                (second_new_rating, second_new_deviation, datetime.datetime.now(tz=datetime.UTC), second_track["id"]),
             )
 
         self._db.commit()
@@ -497,10 +539,10 @@ class Library(object):
     # Private Methods
     #
 
-    def _add_file(self, directory_id, path):
-        tags = mutagen.File(path, easy=True)
+    def _add_file(self, directory_id: int, path: str):
+        tags = TinyTag.get(path)
 
-        if tags and "musicbrainz_trackid" in tags:
+        if tags and "musicbrainz_trackid" in tags.other:
             mbid = tags["musicbrainz_trackid"][0]
             result = self._db.execute("SELECT * FROM tracks WHERE mbid = ?;", (mbid,)).fetchone()
 
@@ -513,7 +555,7 @@ class Library(object):
 
         self._db.execute(
             "INSERT INTO files (directory_id, track_id, path, last_update) VALUES (?, ?, ?, ?);",
-            (directory_id, track_id, path, datetime.datetime.utcnow()),
+            (directory_id, track_id, path, datetime.datetime.now(tz=datetime.UTC)),
         )
 
     def _add_new_files(self):
